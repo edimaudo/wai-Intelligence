@@ -3,13 +3,12 @@
 {% block content %}
 <section class="login-layout">
   <div class="login-intro"><h1>{{ t.login_title }}</h1><p>{{ t.login_subtitle }}</p><div class="login-value-list"><div><span class="check-mark">✓</span><span>{{ t.source_trace }}</span></div><div><span class="check-mark">✓</span><span>{{ t.human_review }}</span></div><div><span class="check-mark">✓</span><span>{{ t.workflow_label }}</span></div></div></div>
-  <div class="login-card"><div class="login-card-heading"><h2>{{ t.sign_in }}</h2><p>{{ 'Utilisez les identifiants fournis pour cette démonstration.' if lang == 'fr' else 'Use the credentials provided for this demonstration.' }}</p></div>
+  <div class="login-card"><div class="login-card-heading"><h2>{{ t.sign_in }}</h2><p>{{ 'Connectez-vous avec le compte fourni par votre administrateur.' if lang == 'fr' else 'Sign in with the account issued by your administrator.' }}</p></div>
     <form action="/login" method="post" class="form-stack"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="lang" value="{{ lang }}">
       <div class="form-field"><label for="username">{{ t.username }}</label><input id="username" name="username" type="email" autocomplete="username" required autofocus></div>
       <div class="form-field"><label for="password">{{ t.password }}</label><input id="password" name="password" type="password" autocomplete="current-password" required></div>
       <button type="submit" class="button button-primary button-full">{{ t.sign_in }} <span aria-hidden="true">→</span></button>
     </form>
-    {% if show_demo_credentials %}<div class="demo-credentials"><div class="demo-header"><strong>{{ t.demo_credentials }}</strong><span class="tag tag-neutral">DEMO</span></div><div class="credential-row"><span>{{ t.administrator }}</span><code>{{ admin_username }}</code><code>{{ admin_password }}</code></div><div class="credential-row"><span>{{ t.main_user }}</span><code>{{ staff_username }}</code><code>{{ staff_password }}</code></div><p class="inline-warning">{{ t.demo_warning }}</p></div>{% endif %}
   </div>
 </section>
 {% endblock %}

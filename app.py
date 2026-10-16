@@ -59,10 +59,6 @@ if IS_VERCEL:
         raise RuntimeError("Set a random SESSION_SECRET with at least 32 characters in Vercel Project Settings.")
     if os.getenv("DEMO_ADMIN_PASSWORD", "WaiAdmin!2026") == "WaiAdmin!2026" or len(os.getenv("DEMO_ADMIN_PASSWORD", "")) < 12:
         raise RuntimeError("Set a unique DEMO_ADMIN_PASSWORD of at least 12 characters in Vercel Project Settings.")
-    if os.getenv("DEMO_STAFF_PASSWORD", "WaiStaff!2026") == "WaiStaff!2026" or len(os.getenv("DEMO_STAFF_PASSWORD", "")) < 12:
-        raise RuntimeError("Set a unique DEMO_STAFF_PASSWORD of at least 12 characters in Vercel Project Settings.")
-    if os.getenv("DEMO_SHOW_CREDENTIALS", "false").lower() == "true":
-        raise RuntimeError("Do not display demo credentials on a public Vercel deployment.")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 # Kept configurable because model availability can differ by API project and region.
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
@@ -139,7 +135,7 @@ I18N: dict[str, dict[str, str]] = {
         "admin_title": "Access administration", "admin_description": "Grant or revoke workspace access. Only an administrator can manage access.",
         "username": "Email / username", "password": "Password", "role": "Role", "main_user": "Staff user",
         "administrator": "Administrator", "grant_access": "Grant access", "revoke_access": "Revoke access",
-        "active": "Active", "revoked": "Revoked", "actions": "Actions", "demo_credentials": "Demo sign-in details",
+        "active": "Active", "revoked": "Revoked", "actions": "Actions",
         "demo_warning": "Change these credentials and SESSION_SECRET before deployment.", "login_title": "Sign in to Wai Intelligence",
         "login_subtitle": "A shared evidence and decision workspace for WaterAid Canada.", "invalid_login": "Sign-in failed. Check your credentials or ask an administrator for access.",
         "no_access": "Your access is inactive. Contact an administrator.", "not_found": "This workspace item was not found.",
@@ -213,7 +209,7 @@ I18N: dict[str, dict[str, str]] = {
         "admin_title": "Gestion des accès", "admin_description": "Accordez ou révoquez l’accès à l’espace de travail. Seul un administrateur peut gérer les accès.",
         "username": "Courriel / identifiant", "password": "Mot de passe", "role": "Rôle", "main_user": "Personnel",
         "administrator": "Administrateur", "grant_access": "Accorder l’accès", "revoke_access": "Révoquer l’accès",
-        "active": "Actif", "revoked": "Révoqué", "actions": "Actions", "demo_credentials": "Identifiants de démonstration",
+        "active": "Actif", "revoked": "Révoqué", "actions": "Actions",
         "demo_warning": "Modifiez ces identifiants et SESSION_SECRET avant le déploiement.", "login_title": "Connexion à Wai Intelligence",
         "login_subtitle": "Un espace partagé de preuves et de décisions pour WaterAid Canada.", "invalid_login": "Échec de connexion. Vérifiez vos identifiants ou demandez l’accès à un administrateur.",
         "no_access": "Votre accès est inactif. Communiquez avec un administrateur.", "not_found": "Cet élément de l’espace de travail est introuvable.",
@@ -393,13 +389,12 @@ def _utc_now() -> str:
 
 def _seed_state() -> dict[str, Any]:
     admin_email = os.getenv("DEMO_ADMIN_USERNAME", "admin@wai.local").strip().lower()
-    staff_email = os.getenv("DEMO_STAFF_USERNAME", "staff@wai.local").strip().lower()
     admin_password = os.getenv("DEMO_ADMIN_PASSWORD", "WaiAdmin!2026")
-    staff_password = os.getenv("DEMO_STAFF_PASSWORD", "WaiStaff!2026")
     return {
+        # Only the administrator is seeded. Staff receive individual accounts
+        # through the access-administration screen.
         "users": {
             admin_email: {"email": admin_email, "role": "admin", "status": "active", **_hash_password(admin_password), "created_at": _utc_now(), "is_seed": True},
-            staff_email: {"email": staff_email, "role": "main_user", "status": "active", **_hash_password(staff_password), "created_at": _utc_now(), "is_seed": True},
         },
         "opportunities": OFFICIAL_OPPORTUNITIES,
         "metrics": SAMPLE_METRICS,
@@ -484,8 +479,18 @@ store = StateStore()
 
 def _repair_state(state: dict[str, Any]) -> dict[str, Any]:
     required_keys = ("users", "opportunities", "metrics", "donors", "due_diligence", "obligations", "data_dictionary", "analyses", "analysis_cache", "decisions", "feedback", "settings")
-    has_admin = any(u.get("role") == "admin" for u in state.get("users", {}).values())
+    # Migrate state persisted by earlier builds: delete the pre-created demo
+    # staff account so only accounts explicitly granted by an administrator remain.
+    users = state.get("users", {})
+    removed_seeded_staff = False
+    for email, record in list(users.items()):
+        if record.get("is_seed") and record.get("role") == "main_user":
+            users.pop(email, None)
+            removed_seeded_staff = True
+    has_admin = any(u.get("role") == "admin" for u in users.values())
     if all(key in state for key in required_keys) and has_admin:
+        if removed_seeded_staff:
+            store.save(state)
         return state
     seed = _seed_state()
     for key, value in seed.items():
@@ -808,13 +813,7 @@ async def login_page(request: Request) -> Any:
     user = authenticated_user(request)
     if user:
         return RedirectResponse("/app", status_code=303)
-    return render(request, "login.html", {
-        "admin_username": os.getenv("DEMO_ADMIN_USERNAME", "admin@wai.local"),
-        "admin_password": os.getenv("DEMO_ADMIN_PASSWORD", "WaiAdmin!2026"),
-        "staff_username": os.getenv("DEMO_STAFF_USERNAME", "staff@wai.local"),
-        "staff_password": os.getenv("DEMO_STAFF_PASSWORD", "WaiStaff!2026"),
-        "show_demo_credentials": os.getenv("DEMO_SHOW_CREDENTIALS", "false").lower() == "true",
-    })
+    return render(request, "login.html", {})
 
 
 @app.post("/login", dependencies=[Depends(csrf_guard)])
