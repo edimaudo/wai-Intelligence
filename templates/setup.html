@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Create administrator account' if lang == 'en' else 'Créer le compte administrateur' }} | Wai Intelligence{% endblock %}
+{% block content %}
+<section class="login-layout">
+  <div class="login-intro">
+    <h1>{{ 'Set up Wai Intelligence' if lang == 'en' else 'Configurer Wai Intelligence' }}</h1>
+    <p>{{ 'Create the first administrator account to get started. There are no default accounts or demo passwords.' if lang == 'en' else 'Créez le premier compte administrateur pour commencer. Aucun compte par défaut ni mot de passe de démonstration.' }}</p>
+    <div class="login-value-list">
+      <div><span class="check-mark">✓</span><span>{{ 'Use your own email and password' if lang == 'en' else 'Utilisez votre propre courriel et mot de passe' }}</span></div>
+      <div><span class="check-mark">✓</span><span>{{ 'Create individual staff accounts after signing in' if lang == 'en' else 'Créez des comptes individuels pour le personnel après la connexion' }}</span></div>
+    </div>
+  </div>
+  <div class="login-card">
+    <div class="login-card-heading"><h2>{{ 'Create administrator' if lang == 'en' else 'Créer un compte administrateur' }}</h2><p>{{ 'This one-time setup is available only until the first administrator is created.' if lang == 'en' else 'Cette configuration unique est disponible jusqu’à la création du premier administrateur.' }}</p></div>
+    {% if setup_error == 'invalid' %}<div class="notice notice-error">{{ 'Enter a valid email, a password of at least 8 characters, and matching confirmation.' if lang == 'en' else 'Entrez un courriel valide, un mot de passe d’au moins 8 caractères et une confirmation identique.' }}</div>{% elif setup_error == 'storage' %}<div class="notice notice-error">{{ 'The account could not be saved to the configured database. Check the database connection and try again.' if lang == 'en' else 'Le compte n’a pas pu être enregistré dans la base de données configurée. Vérifiez la connexion et réessayez.' }}</div>{% endif %}
+    <form action="/setup" method="post" class="form-stack"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="lang" value="{{ lang }}">
+      <div class="form-field"><label for="username">{{ t.username }}</label><input id="username" name="username" type="email" autocomplete="username" required autofocus></div>
+      <div class="form-field"><label for="password">{{ t.password }}</label><input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required></div>
+      <div class="form-field"><label for="password_confirmation">{{ 'Confirm password' if lang == 'en' else 'Confirmer le mot de passe' }}</label><input id="password_confirmation" name="password_confirmation" type="password" autocomplete="new-password" minlength="8" required></div>
+      <button type="submit" class="button button-primary button-full">{{ 'Create account' if lang == 'en' else 'Créer le compte' }} <span aria-hidden="true">→</span></button>
+    </form>
+  </div>
+</section>
+{% endblock %}

@@ -1,4 +1,5 @@
 import re
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -26,6 +27,14 @@ def csrf(html: str) -> str:
 
 
 def sign_in(client: TestClient, username: str, password: str) -> None:
+    setup_page = client.get("/setup")
+    if setup_page.status_code == 200:
+        created = client.post(
+            "/setup",
+            data={"csrf_token": csrf(setup_page.text), "username": username, "password": password, "password_confirmation": password, "lang": "en"},
+        )
+        assert created.status_code == 303
+        assert created.headers["location"] == "/login?notice=setup"
     page = client.get("/login")
     assert page.status_code == 200
     response = client.post(
@@ -52,13 +61,37 @@ def grant_staff_access(client: TestClient, username: str = "operator@example.org
     assert signed_out.status_code == 303
 
 
+
+def test_first_admin_setup_uses_user_chosen_password_and_closes_afterward(client, monkeypatch):
+    monkeypatch.delenv("DEMO" + "_ADMIN_PASSWORD", raising=False)
+    page = client.get("/setup")
+    assert page.status_code == 200
+    token = csrf(page.text)
+    created = client.post("/setup", data={
+        "csrf_token": token, "username": "owner@example.org",
+        "password": "OwnPassword!2026", "password_confirmation": "OwnPassword!2026", "lang": "en",
+    })
+    assert created.headers["location"] == "/login?notice=setup"
+    assert client.get("/setup").headers["location"] == "/login"
+    sign_in(client, "owner@example.org", "OwnPassword!2026")
+    assert client.get("/admin").status_code == 200
+
+
+def test_no_default_admin_or_demo_password_is_seeded(client):
+    state = wai._seed_state()
+    assert state["users"] == {}
+    assert "DEMO" + "_ADMIN_PASSWORD" not in (Path(wai.ROOT) / ".env.example").read_text()
+
 def test_public_routes_and_french_language(client):
     assert client.get("/").status_code == 200
     assert client.get("/healthz").json()["status"] == "ok"
     assert client.get("/static/styles.css").status_code == 200
     assert client.get("/static/app.js").status_code == 200
-    page = client.get("/login")
-    token = csrf(page.text)
+    setup_page = client.get("/setup")
+    assert setup_page.status_code == 200
+    assert "no default accounts" in setup_page.text.lower() or "aucun compte par défaut" in setup_page.text.lower()
+    assert client.get("/login").headers["location"] == "/setup"
+    token = csrf(setup_page.text)
     result = client.post("/language", data={"csrf_token": token, "lang": "fr", "next": "/"})
     assert result.status_code == 303
     landing = client.get("/")
@@ -284,4 +317,16 @@ def test_legacy_seeded_staff_account_is_removed_from_persisted_state(client):
     wai.store._memory = state
     repaired = wai._repair_state(wai.store.load())
     assert "legacy.staff@wai.local" not in repaired["users"]
-    assert "admin@wai.local" in repaired["users"]
+    assert repaired["users"] == {}  # no replacement admin is seeded; setup is explicit
+
+
+def test_legacy_demo_admin_is_removed_instead_of_requiring_its_password(client):
+    state = wai._seed_state()
+    state["users"]["admin@wai.local"] = {
+        "email": "admin@wai.local", "role": "admin", "status": "active",
+        **wai._hash_password("OldDemoAdmin!2026"), "created_at": wai._utc_now(), "is_seed": True,
+    }
+    wai.store._memory = state
+    repaired = wai._repair_state(wai.store.load())
+    assert "admin@wai.local" not in repaired["users"]
+    assert client.get("/setup").status_code == 200

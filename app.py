@@ -54,11 +54,8 @@ def read_dataset(dataset: str) -> list[dict[str, str]]:
 APP_NAME = "Wai Intelligence"
 SESSION_SECRET = os.getenv("SESSION_SECRET", "development-only-change-me-before-deploying")
 IS_VERCEL = os.getenv("VERCEL", "").lower() in {"1", "true"}
-if IS_VERCEL:
-    if len(SESSION_SECRET) < 32 or SESSION_SECRET == "development-only-change-me-before-deploying":
-        raise RuntimeError("Set a random SESSION_SECRET with at least 32 characters in Vercel Project Settings.")
-    if os.getenv("DEMO_ADMIN_PASSWORD", "WaiAdmin!2026") == "WaiAdmin!2026" or len(os.getenv("DEMO_ADMIN_PASSWORD", "")) < 12:
-        raise RuntimeError("Set a unique DEMO_ADMIN_PASSWORD of at least 12 characters in Vercel Project Settings.")
+if IS_VERCEL and (len(SESSION_SECRET) < 32 or SESSION_SECRET == "development-only-change-me-before-deploying"):
+    raise RuntimeError("Set a random SESSION_SECRET with at least 32 characters in Vercel Project Settings.")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 # Kept configurable because model availability can differ by API project and region.
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
@@ -388,14 +385,10 @@ def _utc_now() -> str:
 
 
 def _seed_state() -> dict[str, Any]:
-    admin_email = os.getenv("DEMO_ADMIN_USERNAME", "admin@wai.local").strip().lower()
-    admin_password = os.getenv("DEMO_ADMIN_PASSWORD", "WaiAdmin!2026")
     return {
-        # Only the administrator is seeded. Staff receive individual accounts
-        # through the access-administration screen.
-        "users": {
-            admin_email: {"email": admin_email, "role": "admin", "status": "active", **_hash_password(admin_password), "created_at": _utc_now(), "is_seed": True},
-        },
+        # No pre-created credentials. The first administrator creates an account
+        # through the one-time setup screen; that administrator can create staff accounts.
+        "users": {},
         "opportunities": OFFICIAL_OPPORTUNITIES,
         "metrics": SAMPLE_METRICS,
         "donors": SAMPLE_DONORS,
@@ -479,27 +472,23 @@ store = StateStore()
 
 def _repair_state(state: dict[str, Any]) -> dict[str, Any]:
     required_keys = ("users", "opportunities", "metrics", "donors", "due_diligence", "obligations", "data_dictionary", "analyses", "analysis_cache", "decisions", "feedback", "settings")
-    # Migrate state persisted by earlier builds: delete the pre-created demo
-    # staff account so only accounts explicitly granted by an administrator remain.
-    users = state.get("users", {})
-    removed_seeded_staff = False
-    for email, record in list(users.items()):
-        if record.get("is_seed") and record.get("role") == "main_user":
-            users.pop(email, None)
-            removed_seeded_staff = True
-    has_admin = any(u.get("role") == "admin" for u in users.values())
-    if all(key in state for key in required_keys) and has_admin:
-        if removed_seeded_staff:
-            store.save(state)
-        return state
     seed = _seed_state()
-    for key, value in seed.items():
+    changed = False
+    for key in required_keys:
         if key not in state:
-            state[key] = value
-    # Recover an administrator only if the persisted state has none.
-    if not any(u.get("role") == "admin" for u in state.get("users", {}).values()):
-        default_admin = seed["users"][os.getenv("DEMO_ADMIN_USERNAME", "admin@wai.local").strip().lower()]
-        state["users"][default_admin["email"]] = default_admin
+            state[key] = seed[key]
+            changed = True
+    # Remove the old pre-created demo staff account from states created by earlier builds.
+    users = state.get("users", {})
+    for email, record in list(users.items()):
+        if record.get("is_seed"):
+            # Drop all seeded credentials from previous versions, including the old demo admin.
+            users.pop(email, None)
+            changed = True
+    # Never manufacture an administrator or password from environment defaults.
+    # Existing accounts are preserved; a first administrator is created explicitly at /setup.
+    if changed:
+        store.save(state)
     return state
 
 
@@ -808,9 +797,44 @@ async def landing(request: Request) -> HTMLResponse:
     return render(request, "landing.html", {"modules": MODULES})
 
 
+def _has_admin(state: dict[str, Any]) -> bool:
+    return any(record.get("role") == "admin" and record.get("status") == "active" for record in state.get("users", {}).values())
+
+
+@app.get("/setup", response_class=HTMLResponse)
+async def setup_page(request: Request) -> Any:
+    state = _repair_state(store.load())
+    if _has_admin(state):
+        return RedirectResponse("/login", status_code=303)
+    return render(request, "setup.html", {"setup_error": request.query_params.get("error", "")})
+
+
+@app.post("/setup", dependencies=[Depends(csrf_guard)])
+async def setup_admin(request: Request) -> RedirectResponse:
+    state = _repair_state(store.load())
+    if _has_admin(state):
+        return RedirectResponse("/login", status_code=303)
+    form = await request.form()
+    email = str(form.get("username", "")).strip().lower()
+    password = str(form.get("password", ""))
+    confirmation = str(form.get("password_confirmation", ""))
+    if "@" not in email or len(password) < 8 or password != confirmation:
+        return RedirectResponse("/setup?error=invalid", status_code=303)
+    state["users"][email] = {"email": email, "role": "admin", "status": "active", **_hash_password(password), "created_at": _utc_now(), "is_seed": False}
+    if not store.save(state) and store._db_configured:
+        # Do not report setup success if configured shared storage failed.
+        state["users"].pop(email, None)
+        store._memory = state
+        return RedirectResponse("/setup?error=storage", status_code=303)
+    return RedirectResponse("/login?notice=setup", status_code=303)
+
+
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request) -> Any:
-    user = authenticated_user(request)
+    state = _repair_state(store.load())
+    if not _has_admin(state):
+        return RedirectResponse("/setup", status_code=303)
+    user = authenticated_user(request, state)
     if user:
         return RedirectResponse("/app", status_code=303)
     return render(request, "login.html", {})
@@ -822,6 +846,8 @@ async def login(request: Request) -> RedirectResponse:
     email = str(form.get("username", "")).strip().lower()
     password = str(form.get("password", ""))
     state = _repair_state(store.load())
+    if not _has_admin(state):
+        return RedirectResponse("/setup", status_code=303)
     user = state.get("users", {}).get(email)
     if not user or user.get("status") != "active" or not _verify_password(password, user):
         return RedirectResponse("/login?error=invalid", status_code=303)
@@ -1144,7 +1170,7 @@ async def grant_access(request: Request) -> RedirectResponse:
     email = str(form.get("username", "")).strip().lower()
     password = str(form.get("password", ""))
     role = "main_user"  # New accounts start with least privilege; administrator promotion is not self-service.
-    if "@" not in email or len(password) < 12:
+    if "@" not in email or len(password) < 8:
         return RedirectResponse("/admin?error=invaliduser", status_code=303)
     state = _repair_state(store.load())
     state["users"][email] = {"email": email, "role": role, "status": "active", **_hash_password(password), "created_at": _utc_now(), "created_by": user["email"], "is_seed": False}
