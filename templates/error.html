@@ -1,0 +1,3 @@
+{% extends "base.html" %}
+{% block title %}Request error | Wai Intelligence{% endblock %}
+{% block content %}<section class="empty-state-large"><div class="empty-state-icon">!</div><h1>{{ 'La requête n’a pas pu être effectuée' if lang == 'fr' else 'Request could not be completed' }}</h1><p>{{ message }}</p><a href="/app" class="button button-primary">{{ t.back_overview }}</a></section>{% endblock %}

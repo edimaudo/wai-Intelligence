@@ -1,0 +1,4 @@
+obligation_id,obligation,owner_role,due_date,risk,next_step,data_status
+OBL-01,Submit monthly expenditure ledger with supporting records,Finance lead,Last day of each month,High,"Confirm binding agreement clause audit format and submission route",Synthetic example; not an actual WaterAid obligation
+OBL-02,Maintain approved programme outputs and indicator evidence,Programme manager,Monthly review,Medium,"Map each indicator to approved definition baseline and evidence source",Synthetic example; not an actual WaterAid obligation
+OBL-03,Obtain prior approval for material budget or workplan changes,Grant manager,Before change is implemented,High,"Compare proposed variance against signed agreement and amendment history",Synthetic example; not an actual WaterAid obligation

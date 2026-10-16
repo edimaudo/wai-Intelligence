@@ -1,0 +1,3 @@
+donor_id,name,segment,last_gift,cadence,preferred_channel,last_contact,restrictions,recorded_context,data_status
+DONOR-01,Mina Chen,Individual supporter,$500,Quarterly,Email,2026-08-22,"No phone calls. No solicitation before 2027-02-01.","Survey preference: concise programme updates focused on community-led water services",Synthetic; preferences and restrictions are explicit
+DONOR-02,Samuel Okafor,Monthly supporter,$75/month,Monthly,Email,2026-09-12,"Do not share personal story externally without renewed consent.","Requested annual impact summary and clear explanations of overhead",Synthetic; employer field is incomplete and must not be inferred

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="{{ 'fr-CA' if lang == 'fr' else 'en-CA' }}" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Wai Intelligence — evidence-led decisions for WaterAid Canada.">
+  <title>{% block title %}Wai Intelligence{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+  {% block head %}{% endblock %}
+</head>
+<body>
+<a class="skip-link" href="#main-content">{{ t.skip_to_content }}</a>
+{% if user %}
+<div class="app-shell">
+  <aside class="sidebar" id="app-navigation" aria-label="{{ t.primary_navigation }}">
+    <a class="brand" href="/app" aria-label="{{ t.overview_aria }}"><span class="brand-symbol" aria-hidden="true"><span></span><span></span><span></span></span><span class="brand-copy"><strong>Wai</strong><small>INTELLIGENCE</small></span></a>
+    <div class="nav-section-label">{{ t.workspace }}</div>
+    <nav class="primary-nav">
+      <a class="nav-link {% if request.url.path == '/app' %}active{% endif %}" href="/app"><span class="nav-index">00</span><span>{{ t.overview }}</span></a>
+      <div class="nav-section-label nav-section-spaced">{{ t.five_modules }}</div>
+      {% for slug, mod in modules.items() %}<a class="nav-link {% if request.url.path == '/modules/' ~ slug %}active{% endif %}" href="/modules/{{ slug }}"><span class="nav-index">{{ mod.icon }}</span><span>{{ t[mod.nav] }}</span></a>{% endfor %}
+      <div class="nav-section-label nav-section-spaced">{{ t.workflow_label }}</div>
+      <a class="nav-link {% if request.url.path.startswith('/decisions') %}active{% endif %}" href="/decisions"><span class="nav-index">06</span><span>{{ t.decision_workbench }}</span></a>
+      <a class="nav-link {% if request.url.path.startswith('/exports') %}active{% endif %}" href="/exports"><span class="nav-index">07</span><span>{{ 'Data & integrations' if lang == 'en' else 'Données et intégrations' }}</span></a>
+      {% if user.role == 'admin' %}<a class="nav-link {% if request.url.path.startswith('/admin') %}active{% endif %}" href="/admin"><span class="nav-index">AD</span><span>{{ t.admin }}</span></a>{% endif %}
+    </nav>
+    <div class="sidebar-bottom"><div class="mini-status"><span class="status-dot"></span><span>{{ t.system_boundary }}</span></div><div class="sidebar-user"><div class="avatar">{{ user.email[:1].upper() }}</div><div class="sidebar-user-copy"><strong>{{ user.email }}</strong><small>{{ t.administrator if user.role == 'admin' else t.main_user }}</small></div></div></div>
+  </aside>
+  <div class="main-shell">
+    <header class="topbar"><div class="topbar-left"><button class="icon-button mobile-nav-toggle" type="button" id="nav-toggle" aria-expanded="false" aria-controls="app-navigation" aria-label="{{ t.toggle_navigation }}">☰</button><div class="topbar-context"><span class="breadcrumb-root">Wai Intelligence</span><span class="breadcrumb-separator">/</span><span class="breadcrumb-current">{% block breadcrumb %}{{ t.overview }}{% endblock %}</span></div></div>
+      <div class="topbar-controls"><form action="/language" method="post" class="inline-control" aria-label="{{ t.language }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="next" value="{{ request.url.path }}"><label class="sr-only" for="language-select">{{ t.language }}</label><select id="language-select" name="lang" class="compact-select" onchange="this.form.submit()"><option value="en" {% if lang == 'en' %}selected{% endif %}>EN</option><option value="fr" {% if lang == 'fr' %}selected{% endif %}>FR</option></select></form>
+        <label class="sr-only" for="font-size-select">{{ t.font_size }}</label><select id="font-size-select" class="compact-select width-auto" aria-label="{{ t.font_size }}"><option value="small">A−</option><option value="medium" selected>A</option><option value="large">A+</option></select><button type="button" class="icon-button" id="theme-toggle" aria-label="{{ t.theme }}" title="{{ t.theme }}"><span id="theme-icon" aria-hidden="true">◐</span></button><div class="topbar-role">{{ t.administrator if user.role == 'admin' else t.main_user }}</div><form action="/logout" method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="quiet-button" type="submit">{{ t.sign_out }}</button></form>
+      </div>
+    </header>
+    <main class="page-content" id="main-content">
+{% else %}
+<div class="public-shell">
+  <header class="public-topbar"><a class="brand" href="/" aria-label="{{ t.home_aria }}"><span class="brand-symbol" aria-hidden="true"><span></span><span></span><span></span></span><span class="brand-copy"><strong>Wai</strong><small>INTELLIGENCE</small></span></a><div class="topbar-controls"><form action="/language" method="post" class="inline-control"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="next" value="{{ request.url.path }}"><label class="sr-only" for="language-select">{{ t.language }}</label><select id="language-select" name="lang" class="compact-select" onchange="this.form.submit()"><option value="en" {% if lang == 'en' %}selected{% endif %}>EN</option><option value="fr" {% if lang == 'fr' %}selected{% endif %}>FR</option></select></form><label class="sr-only" for="font-size-select">{{ t.font_size }}</label><select id="font-size-select" class="compact-select width-auto" aria-label="{{ t.font_size }}"><option value="small">A−</option><option value="medium" selected>A</option><option value="large">A+</option></select><button type="button" class="icon-button" id="theme-toggle" aria-label="{{ t.theme }}" title="{{ t.theme }}"><span id="theme-icon" aria-hidden="true">◐</span></button><a href="/login" class="button button-secondary button-small">{{ t.sign_in }}</a></div></header>
+  <main id="main-content" class="public-main">
+{% endif %}
+    {% if notice %}<div class="notice notice-success" role="status">{% if notice == 'saved' %}{{ t.analysis_saved }}{% elif notice == 'decision' %}{{ t.decision_saved }}{% elif notice == 'access' %}{{ t.access_saved }}{% elif notice == 'reviewed' %}{{ t.save_feedback }}{% elif notice == 'closed' %}{{ t.save }}{% elif notice == 'settings' %}{{ t.settings_saved }}{% else %}{{ notice }}{% endif %}</div>{% endif %}
+    {% if error %}<div class="notice notice-error" role="alert">{% if error == 'invalid' %}{{ t.invalid_login }}{% elif error == 'objective' %}{{ t.missing_objective }}{% elif error == 'upload' %}{{ t.error_upload }}{% elif error == 'notfound' %}{{ t.not_found }}{% elif error == 'missing' %}Complete the required fields / Veuillez remplir les champs obligatoires.{% elif error == 'invaliduser' %}Use a valid email and a password of at least 12 characters / Utilisez un courriel valide et un mot de passe d’au moins 12 caractères.{% elif error == 'invalidsettings' %}Enter a valid fit score (0–100) and review interval (1–90 days) / Entrez une adéquation (0–100) et un intervalle (1–90 jours) valides.{% else %}{{ error }}{% endif %}</div>{% endif %}
+    {% block content %}{% endblock %}
+  </main>
+{% if user %}</div></div>{% else %}</div>{% endif %}
+<script src="/static/app.js" defer></script>
+</body>
+</html>

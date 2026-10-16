@@ -1,0 +1,5 @@
+metric,definition,unit,owner,limitation
+Fundraising revenue,"Synthetic total cash revenue recorded for the quarter; not audited",CAD,Finance,"No restricted/deferral breakdown is included"
+Active donors,"Synthetic unique donors with a recorded gift during the defined window",People,Fundraising,"Definition must be confirmed before real comparison"
+Programme reach,"Synthetic people reported as reached by funded WASH programming",People,Programme,"Reach is not the same as verified sustained service access or health impact"
+Digital donations,"Synthetic count of digital gift transactions",Transactions,Fundraising,"A transaction is not a unique donor; channel attribution may change"
