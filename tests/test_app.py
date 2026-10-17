@@ -99,6 +99,31 @@ def test_public_routes_and_french_language(client):
     assert "Capacités intégrées" in landing.text
 
 
+def test_landing_page_has_compact_capabilities_and_no_removed_sections(client):
+    response = client.get("/")
+    assert response.status_code == 200
+    html = response.text
+    for removed in (
+        "Shared decision workflow",
+        "Explore the workflow",
+        "Better decisions start with better context.",
+        "Five connected work areas",
+        "Built around WaterAid Canada’s operating realities",
+        "Open workspace",
+    ):
+        assert removed not in html
+    assert "Access Wai Intelligence" in html
+    assert "Bring funding, evidence, donor relationships and programme delivery together for clearer, accountable decisions." in html
+    assert "one reviewable workspace" not in html
+    assert "Support lasting access to safe water, sanitation and hygiene." in html
+    assert html.count('class="capability-card"') == 5
+    capability_section = html.split('class="capability-grid"', 1)[1].split('</div>', 1)[0]
+    assert 'class="nav-index"' not in capability_section
+    assert "<footer" not in html
+    css = client.get("/static/styles.css").text
+    assert ".capability-grid { display: grid; grid-template-columns: repeat(5,minmax(0,1fr));" in css
+
+
 def test_private_routes_require_login(client):
     response = client.get("/app")
     assert response.status_code == 303

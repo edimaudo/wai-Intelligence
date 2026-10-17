@@ -3,11 +3,9 @@
 {% block content %}
 <section class="landing-hero">
   <div class="hero-copy">
-    
     <h1>{{ t.mission }}</h1>
     <p class="hero-lede">{{ t.landing_subtitle }}</p>
-    <div class="hero-actions"><a class="button button-primary" href="/login">{{ t.open_workspace }} <span aria-hidden="true">→</span></a><a class="text-link" href="#workflow">{{ t.see_how }} <span aria-hidden="true">↓</span></a></div>
-    <div class="hero-proof"><div class="proof-mark">05</div><div><strong>{{ t.five_modules }}</strong><span>{{ t.built_for }}</span></div></div>
+    <div class="hero-actions"><a class="button button-primary" href="/login">{{ t.open_workspace }}</a></div>
   </div>
   <div class="hero-visual" aria-label="{{ t.workflow_illustration_aria }}">
     <div class="orbit orbit-large"></div><div class="orbit orbit-small"></div><div class="visual-center"><span class="brand-symbol large"><span></span><span></span><span></span></span><strong>Wai</strong><small>INTELLIGENCE</small></div>
@@ -20,26 +18,33 @@
   </div>
 </section>
 <section class="principles-strip" aria-label="{{ t.design_principles_aria }}">
-  <div><span class="principle-index">01</span><strong>{{ t.mission_impact }}</strong><p>{{ 'Prioriser des services EAH durables.' if lang == 'fr' else 'Keep the focus on sustained WASH outcomes.' }}</p></div>
-  <div><span class="principle-index">02</span><strong>{{ t.human_review }}</strong><p>{{ 'Le personnel approuve les décisions importantes et les communications.' if lang == 'fr' else 'People approve consequential decisions and communications.' }}</p></div>
-  <div><span class="principle-index">03</span><strong>{{ t.source_trace }}</strong><p>{{ 'Rendre visibles les hypothèses, les lacunes et les sources.' if lang == 'fr' else 'Make assumptions, gaps and source material visible.' }}</p></div>
-</section>
-<section class="landing-section" id="workflow">
-  <div class="section-heading"><div><h2>{{ t.workflow_label }}</h2></div><p>{{ 'Passez d’un problème clairement défini à une décision documentée, plutôt que de traiter chaque tâche comme un résultat d’IA isolé.' if lang == 'fr' else 'Move from a clearly framed problem to a documented decision, instead of treating every task as a standalone AI output.' }}</p></div>
-  <div class="workflow-steps">
-    {% for name, desc, num in [(t.frame, t.frame_desc, '01'), (t.diagnose, t.diagnose_desc, '02'), (t.explore, t.explore_desc, '03'), (t.decide, t.decide_desc, '04'), (t.act, t.act_desc, '05')] %}
-    <article class="workflow-step"><span class="step-index">{{ num }}</span><h3>{{ name }}</h3><p>{{ desc }}</p>{% if not loop.last %}<span class="step-arrow" aria-hidden="true">→</span>{% endif %}</article>
-    {% endfor %}
-  </div>
+  <div><strong>{{ t.mission_impact }}</strong><p>{{ 'Favoriser un accès durable à l’eau potable, à l’assainissement et à l’hygiène.' if lang == 'fr' else 'Support lasting access to safe water, sanitation and hygiene.' }}</p></div>
+  <div><strong>{{ t.human_review }}</strong><p>{{ 'Le personnel approuve les décisions importantes et les communications.' if lang == 'fr' else 'People approve consequential decisions and communications.' }}</p></div>
+  <div><strong>{{ t.source_trace }}</strong><p>{{ 'Rendre visibles les hypothèses, les lacunes et les sources.' if lang == 'fr' else 'Make assumptions, gaps and source material visible.' }}</p></div>
 </section>
 <section class="landing-section capabilities-section">
-  <div class="section-heading"><div><h2>{{ t.core_pillars }}</h2></div><p>{{ 'Chaque domaine produit des éléments vérifiables pour éclairer le même espace de décision opérationnel et stratégique.' if lang == 'fr' else 'Each area produces reviewable evidence that can inform the same operational and strategic workbench.' }}</p></div>
+  <div class="section-heading"><div><h2>{{ t.core_pillars }}</h2></div></div>
+  {% if lang == 'fr' %}
+    {% set capability_copy = {
+      'prospecting': 'Repérer les possibilités de financement.',
+      'reporting': 'Produire des rapports traçables à partir des données.',
+      'stewardship': 'Planifier les relations et suivis avec les donateurs.',
+      'due_diligence': 'Examiner les preuves publiques et les risques.',
+      'compliance': 'Suivre les conditions, budgets et rapports de subvention.'
+    } %}
+  {% else %}
+    {% set capability_copy = {
+      'prospecting': 'Identify relevant funding opportunities.',
+      'reporting': 'Turn data into traceable reporting.',
+      'stewardship': 'Plan donor engagement and follow-up.',
+      'due_diligence': 'Review public evidence and partnership risks.',
+      'compliance': 'Track grant terms, budgets and reporting.'
+    } %}
+  {% endif %}
   <div class="capability-grid">
     {% for slug, mod in modules.items() %}
-    <article class="capability-card"><div class="card-topline"><span class="nav-index">{{ mod.icon }}</span><span class="capability-arrow" aria-hidden="true">↗</span></div><h3>{{ t[mod.nav] }}</h3><p>{{ mod.purpose_fr if lang == 'fr' else mod.purpose_en }}</p></article>
+    <article class="capability-card"><h3>{{ t[mod.nav] }}</h3><p>{{ capability_copy[slug] }}</p></article>
     {% endfor %}
   </div>
 </section>
-<section class="landing-cta"><div><h2>{{ 'De meilleures décisions commencent par un meilleur contexte.' if lang == 'fr' else 'Better decisions start with better context.' }}</h2><p>{{ 'Le prototype utilise des données synthétiques clairement indiquées et des sources publiques de référence. La révision demeure la responsabilité du personnel.' if lang == 'fr' else 'The prototype uses labelled synthetic records and selected public reference sources. Review remains a staff responsibility.' }}</p></div><a class="button button-primary" href="/login">{{ t.open_workspace }} <span aria-hidden="true">→</span></a></section>
-<footer class="public-footer"><span>Wai Intelligence</span><span>WaterAid Canada · {{ 'Prototype d’évaluation' if lang == 'fr' else 'Prototype for evaluation' }}</span><span>{{ 'EAH · Financement · Responsabilité' if lang == 'fr' else 'WASH · Funding · Accountability' }}</span></footer>
 {% endblock %}
