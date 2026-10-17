@@ -1,1 +1,1 @@
-# wai-Intelligence
+# wai
