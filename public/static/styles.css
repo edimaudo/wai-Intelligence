@@ -338,8 +338,7 @@ td strong { display: block; margin-bottom: 3px; color: var(--ink); font-size: .7
 .visual-center .brand-symbol { margin-bottom: 7px; }
 .visual-center strong { color: var(--ink); font-size: 1.23rem; letter-spacing: -.06em; }
 .visual-center small { margin-top: 2px; color: var(--ink-muted); font-size: .52rem; font-weight: 700; letter-spacing: .14em; }
-.visual-node { position: absolute; z-index: 4; display: flex; align-items: flex-start; gap: 9px; width: 195px; min-height: 60px; padding: 12px 13px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); box-shadow: 0 7px 22px rgba(20,40,50,.06); }
-.node-number { display: flex; align-items: center; justify-content: center; flex: 0 0 22px; width: 22px; height: 22px; border-radius: 4px; background: var(--cyan-soft); color: var(--cyan-deep); font-size: .58rem; font-weight: 700; }
+.visual-node { position: absolute; z-index: 4; display: flex; align-items: center; width: 195px; min-height: 60px; padding: 12px 13px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); box-shadow: 0 7px 22px rgba(20,40,50,.06); }
 .visual-node strong { padding-top: 2px; color: var(--ink); font-size: .72rem; line-height: 1.35; }
 .node-one { top: 10px; left: 50%; transform: translateX(-50%); }
 .node-two { top: 115px; right: -5px; }
@@ -353,14 +352,8 @@ td strong { display: block; margin-bottom: 3px; color: var(--ink); font-size: .7
 .principles-strip > div:last-child { border-right: 0; }
 .principles-strip strong { font-size: .86rem; }
 .principles-strip p { margin: 5px 0 0; font-size: .73rem; }
-.landing-section { padding: 72px 0 4px; }
 .section-heading h2 { font-size: 1.72rem; }
 .section-heading > p { max-width: 490px; }
-.capabilities-section { padding-top: 62px; }
-.capability-grid { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 13px; }
-.capability-card { min-height: 138px; padding: 18px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
-.capability-card h3 { font-size: .9rem; margin-bottom: 8px; }
-.capability-card p { margin-bottom: 0; font-size: .76rem; line-height: 1.5; }
 
 
 .login-layout { display: grid; grid-template-columns: minmax(0,1fr) minmax(370px,.8fr); align-items: center; gap: clamp(40px,8vw,120px); min-height: calc(100vh - 76px); max-width: 1120px; margin: 0 auto; padding: 45px 0; }
@@ -373,13 +366,6 @@ td strong { display: block; margin-bottom: 3px; color: var(--ink); font-size: .7
 .login-card-heading { margin-bottom: 21px; }
 .login-card-heading h2 { font-size: 1.65rem; }
 .login-card-heading p { margin-bottom: 0; font-size: .78rem; }
-.demo-credentials { margin-top: 25px; padding-top: 19px; border-top: 1px solid var(--line); }
-.demo-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 11px; }
-.demo-header strong { font-size: .8rem; }
-.credential-row { display: grid; grid-template-columns: 1fr; gap: 4px; padding: 10px 0; border-bottom: 1px solid var(--line); }
-.credential-row > span { margin-bottom: 3px; color: var(--ink-secondary); font-size: .71rem; font-weight: 650; }
-.credential-row code { overflow-wrap: anywhere; color: var(--ink); font-size: .72rem; }
-.inline-warning { margin: 12px 0 0; color: var(--warning); font-size: .68rem; }
 
 @media (max-width: 1240px) {
   .sidebar { width: 225px; }
@@ -409,7 +395,6 @@ td strong { display: block; margin-bottom: 3px; color: var(--ink); font-size: .7
   .admin-layout { grid-template-columns: minmax(0,1fr); }
   .landing-hero { grid-template-columns: minmax(0,1fr); padding-top: 45px; }
   .hero-copy { max-width: 740px; }
-  .capability-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
   .hero-visual { max-width: 610px; min-height: 460px; margin: 0 auto; }
   .principles-strip { margin-left: calc((min(100vw - 66px, 1330px) - 100vw)/2); margin-right: calc((min(100vw - 66px, 1330px) - 100vw)/2); }
   .login-layout { max-width: 900px; gap: 45px; }
@@ -463,9 +448,8 @@ td strong { display: block; margin-bottom: 3px; color: var(--ink); font-size: .7
   .orbit-small { width: 180px; height: 180px; }
   .visual-center { width: 115px; height: 115px; }
   .visual-center .brand-symbol { transform: scale(.83); margin-bottom: 1px; }
-  .visual-node { width: 155px; min-height: 51px; padding: 8px; gap: 7px; }
+  .visual-node { width: 155px; min-height: 51px; padding: 8px; }
   .visual-node strong { font-size: .62rem; }
-  .node-number { flex-basis: 20px; width: 20px; height: 20px; font-size: .53rem; }
   .node-one { top: 0; }
   .node-two { top: 87px; right: -26px; }
   .node-three { right: -23px; bottom: 20px; }
@@ -475,9 +459,6 @@ td strong { display: block; margin-bottom: 3px; color: var(--ink); font-size: .7
   .principles-strip > div, .principles-strip > div:first-child { padding: 12px 0; border-right: 0; border-bottom: 1px solid var(--line); }
   .principles-strip > div:last-child { border-bottom: 0; }
   .principles-strip p { margin-bottom: 0; }
-  .landing-section { padding-top: 49px; }
-  .capability-grid { grid-template-columns: 1fr; }
-  .capability-card { min-height: 0; }
   .login-layout { grid-template-columns: 1fr; gap: 30px; min-height: 0; padding: 42px 0; }
   .login-intro h1 { font-size: 2.15rem; }
   .login-value-list { margin-top: 22px; }

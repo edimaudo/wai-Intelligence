@@ -26,15 +26,13 @@ def csrf(html: str) -> str:
     return match.group(1)
 
 
+def read_password_file_credentials() -> dict[str, tuple[str, str]]:
+    content = (Path(wai.ROOT) / "password.md").read_text(encoding="utf-8")
+    rows = re.findall(r"\| (Administrator|Staff user) \| `([^`]+)` \| `([^`]+)` \|", content)
+    return {role: (username, password) for role, username, password in rows}
+
+
 def sign_in(client: TestClient, username: str, password: str) -> None:
-    setup_page = client.get("/setup")
-    if setup_page.status_code == 200:
-        created = client.post(
-            "/setup",
-            data={"csrf_token": csrf(setup_page.text), "username": username, "password": password, "password_confirmation": password, "lang": "en"},
-        )
-        assert created.status_code == 303
-        assert created.headers["location"] == "/login?notice=setup"
     page = client.get("/login")
     assert page.status_code == 200
     response = client.post(
@@ -46,10 +44,9 @@ def sign_in(client: TestClient, username: str, password: str) -> None:
 
 
 
-
 def grant_staff_access(client: TestClient, username: str = "operator@example.org", password: str = "LongPassword!2026") -> None:
     """Create an individually credentialed staff account through admin access control."""
-    sign_in(client, "admin@wai.local", "WaiAdmin!2026")
+    sign_in(client, *read_password_file_credentials()["Administrator"])
     admin_page = client.get("/admin")
     created = client.post(
         "/admin/grant",
@@ -62,44 +59,52 @@ def grant_staff_access(client: TestClient, username: str = "operator@example.org
 
 
 
-def test_first_admin_setup_uses_user_chosen_password_and_closes_afterward(client, monkeypatch):
-    monkeypatch.delenv("DEMO" + "_ADMIN_PASSWORD", raising=False)
-    page = client.get("/setup")
-    assert page.status_code == 200
-    token = csrf(page.text)
-    created = client.post("/setup", data={
-        "csrf_token": token, "username": "owner@example.org",
-        "password": "OwnPassword!2026", "password_confirmation": "OwnPassword!2026", "lang": "en",
-    })
-    assert created.headers["location"] == "/login?notice=setup"
-    assert client.get("/setup").headers["location"] == "/login"
-    sign_in(client, "owner@example.org", "OwnPassword!2026")
-    assert client.get("/admin").status_code == 200
-
-
-def test_no_default_admin_or_demo_password_is_seeded(client):
+def test_two_initial_logins_are_seeded_and_setup_is_not_required(client):
     state = wai._seed_state()
-    assert state["users"] == {}
+    admin_email, admin_password = read_password_file_credentials()["Administrator"]
+    staff_email, staff_password = read_password_file_credentials()["Staff user"]
+    assert state["users"][admin_email]["role"] == "admin"
+    assert state["users"][staff_email]["role"] == "main_user"
+    assert wai._verify_password(admin_password, state["users"][admin_email])
+    assert wai._verify_password(staff_password, state["users"][staff_email])
     assert "DEMO" + "_ADMIN_PASSWORD" not in (Path(wai.ROOT) / ".env.example").read_text()
+    assert client.get("/setup").headers["location"] == "/login"
+    page = client.get("/login")
+    assert page.status_code == 200
+    assert "Create administrator" not in page.text
+    assert admin_email not in page.text and admin_password not in page.text
+    assert staff_email not in page.text and staff_password not in page.text
+
+
+def test_admin_and_staff_initial_logins_have_expected_permissions(client):
+    admin_email, admin_password = read_password_file_credentials()["Administrator"]
+    staff_email, staff_password = read_password_file_credentials()["Staff user"]
+    sign_in(client, admin_email, admin_password)
+    assert client.get("/admin").status_code == 200
+    page = client.get("/admin")
+    client.post("/logout", data={"csrf_token": csrf(page.text)})
+    sign_in(client, staff_email, staff_password)
+    assert client.get("/app").status_code == 200
+    assert client.get("/admin").status_code == 303
 
 def test_public_routes_and_french_language(client):
     assert client.get("/").status_code == 200
     assert client.get("/healthz").json()["status"] == "ok"
     assert client.get("/static/styles.css").status_code == 200
     assert client.get("/static/app.js").status_code == 200
-    setup_page = client.get("/setup")
-    assert setup_page.status_code == 200
-    assert "no default accounts" in setup_page.text.lower() or "aucun compte par défaut" in setup_page.text.lower()
-    assert client.get("/login").headers["location"] == "/setup"
-    token = csrf(setup_page.text)
+    assert client.get("/setup").headers["location"] == "/login"
+    login_page = client.get("/login")
+    assert login_page.status_code == 200
+    token = csrf(login_page.text)
     result = client.post("/language", data={"csrf_token": token, "lang": "fr", "next": "/"})
     assert result.status_code == 303
     landing = client.get("/")
     assert 'lang="fr-CA"' in landing.text
-    assert "Capacités intégrées" in landing.text
+    assert "Capacités intégrées" not in landing.text
+    assert "Trouver des perspectives sur l’eau" in landing.text
 
 
-def test_landing_page_has_compact_capabilities_and_no_removed_sections(client):
+def test_landing_page_removes_capabilities_and_orbit_numbers(client):
     response = client.get("/")
     assert response.status_code == 200
     html = response.text
@@ -108,21 +113,23 @@ def test_landing_page_has_compact_capabilities_and_no_removed_sections(client):
         "Explore the workflow",
         "Better decisions start with better context.",
         "Five connected work areas",
+        "Connected capabilities",
         "Built around WaterAid Canada’s operating realities",
         "Open workspace",
+        "Access Wai Intelligence",
     ):
         assert removed not in html
-    assert "Access Wai Intelligence" in html
+    assert "Find water insights" in html
+    assert "Intelligence for lasting water access" in html
     assert "Bring funding, evidence, donor relationships and programme delivery together for clearer, accountable decisions." in html
     assert "one reviewable workspace" not in html
     assert "Support lasting access to safe water, sanitation and hygiene." in html
-    assert html.count('class="capability-card"') == 5
-    capability_section = html.split('class="capability-grid"', 1)[1].split('</div>', 1)[0]
-    assert 'class="nav-index"' not in capability_section
+    assert 'class="capability-card"' not in html
+    assert 'class="capability-grid"' not in html
+    assert 'class="node-number"' not in html
     assert "<footer" not in html
     css = client.get("/static/styles.css").text
-    assert ".capability-grid { display: grid; grid-template-columns: repeat(5,minmax(0,1fr));" in css
-
+    assert ".capability-grid { display: grid; grid-template-columns: repeat(5,minmax(0,1fr));" not in css
 
 def test_private_routes_require_login(client):
     response = client.get("/app")
@@ -189,7 +196,7 @@ def test_analysis_review_and_decision_workflow(client, monkeypatch):
 
 
 def test_admin_can_grant_and_revoke_staff_access(client):
-    sign_in(client, "admin@wai.local", "WaiAdmin!2026")
+    sign_in(client, *read_password_file_credentials()["Administrator"])
     page = client.get("/admin")
     assert page.status_code == 200
     token = csrf(page.text)
@@ -319,15 +326,15 @@ def test_donor_stewardship_displays_data_folder_records(client):
     assert "Interactions CRM" in page.text or "CRM interactions" in page.text
 
 
-def test_login_never_displays_demo_credentials(client, monkeypatch):
+def test_login_page_never_displays_initial_credentials(client, monkeypatch):
     monkeypatch.setenv("DEMO_SHOW_CREDENTIALS", "true")
     page = client.get("/login")
-    assert "admin@wai.local" not in page.text
-    assert "staff@wai.local" not in page.text
-    assert "WaiStaff!2026" not in page.text
-    assert "WaiAdmin!2026" not in page.text
-    assert "staff@wai.local" not in wai._seed_state()["users"]
-
+    assert page.status_code == 200
+    for username, password in read_password_file_credentials().values():
+        assert username not in page.text
+        assert password not in page.text
+    assert "Create administrator" not in page.text
+    assert "two accounts" not in page.text.lower()
 
 def test_legacy_seeded_staff_account_is_removed_from_persisted_state(client):
     state = wai._seed_state()
@@ -342,7 +349,8 @@ def test_legacy_seeded_staff_account_is_removed_from_persisted_state(client):
     wai.store._memory = state
     repaired = wai._repair_state(wai.store.load())
     assert "legacy.staff@wai.local" not in repaired["users"]
-    assert repaired["users"] == {}  # no replacement admin is seeded; setup is explicit
+    assert read_password_file_credentials()["Administrator"][0] in repaired["users"]
+    assert read_password_file_credentials()["Staff user"][0] in repaired["users"]
 
 
 def test_legacy_demo_admin_is_removed_instead_of_requiring_its_password(client):
@@ -354,4 +362,4 @@ def test_legacy_demo_admin_is_removed_instead_of_requiring_its_password(client):
     wai.store._memory = state
     repaired = wai._repair_state(wai.store.load())
     assert "admin@wai.local" not in repaired["users"]
-    assert client.get("/setup").status_code == 200
+    assert client.get("/setup").headers["location"] == "/login"

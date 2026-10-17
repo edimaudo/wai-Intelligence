@@ -9,11 +9,11 @@
   </div>
   <div class="hero-visual" aria-label="{{ t.workflow_illustration_aria }}">
     <div class="orbit orbit-large"></div><div class="orbit orbit-small"></div><div class="visual-center"><span class="brand-symbol large"><span></span><span></span><span></span></span><strong>Wai</strong><small>INTELLIGENCE</small></div>
-    <div class="visual-node node-one"><span class="node-number">01</span><strong>{{ t.prospecting }}</strong></div>
-    <div class="visual-node node-two"><span class="node-number">02</span><strong>{{ t.reporting }}</strong></div>
-    <div class="visual-node node-three"><span class="node-number">03</span><strong>{{ t.stewardship }}</strong></div>
-    <div class="visual-node node-four"><span class="node-number">04</span><strong>{{ t.due_diligence }}</strong></div>
-    <div class="visual-node node-five"><span class="node-number">05</span><strong>{{ t.compliance }}</strong></div>
+    <div class="visual-node node-one"><strong>{{ t.prospecting }}</strong></div>
+    <div class="visual-node node-two"><strong>{{ t.reporting }}</strong></div>
+    <div class="visual-node node-three"><strong>{{ t.stewardship }}</strong></div>
+    <div class="visual-node node-four"><strong>{{ t.due_diligence }}</strong></div>
+    <div class="visual-node node-five"><strong>{{ t.compliance }}</strong></div>
     <svg class="visual-connectors" viewBox="0 0 560 500" aria-hidden="true"><path d="M280 245 L280 70"/><path d="M314 260 L447 145"/><path d="M307 295 L425 390"/><path d="M250 300 L113 390"/><path d="M248 260 L105 145"/></svg>
   </div>
 </section>
@@ -21,30 +21,5 @@
   <div><strong>{{ t.mission_impact }}</strong><p>{{ 'Favoriser un accès durable à l’eau potable, à l’assainissement et à l’hygiène.' if lang == 'fr' else 'Support lasting access to safe water, sanitation and hygiene.' }}</p></div>
   <div><strong>{{ t.human_review }}</strong><p>{{ 'Le personnel approuve les décisions importantes et les communications.' if lang == 'fr' else 'People approve consequential decisions and communications.' }}</p></div>
   <div><strong>{{ t.source_trace }}</strong><p>{{ 'Rendre visibles les hypothèses, les lacunes et les sources.' if lang == 'fr' else 'Make assumptions, gaps and source material visible.' }}</p></div>
-</section>
-<section class="landing-section capabilities-section">
-  <div class="section-heading"><div><h2>{{ t.core_pillars }}</h2></div></div>
-  {% if lang == 'fr' %}
-    {% set capability_copy = {
-      'prospecting': 'Repérer les possibilités de financement.',
-      'reporting': 'Produire des rapports traçables à partir des données.',
-      'stewardship': 'Planifier les relations et suivis avec les donateurs.',
-      'due_diligence': 'Examiner les preuves publiques et les risques.',
-      'compliance': 'Suivre les conditions, budgets et rapports de subvention.'
-    } %}
-  {% else %}
-    {% set capability_copy = {
-      'prospecting': 'Identify relevant funding opportunities.',
-      'reporting': 'Turn data into traceable reporting.',
-      'stewardship': 'Plan donor engagement and follow-up.',
-      'due_diligence': 'Review public evidence and partnership risks.',
-      'compliance': 'Track grant terms, budgets and reporting.'
-    } %}
-  {% endif %}
-  <div class="capability-grid">
-    {% for slug, mod in modules.items() %}
-    <article class="capability-card"><h3>{{ t[mod.nav] }}</h3><p>{{ capability_copy[slug] }}</p></article>
-    {% endfor %}
-  </div>
 </section>
 {% endblock %}

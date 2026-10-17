@@ -90,9 +90,8 @@ I18N: dict[str, dict[str, str]] = {
         "small": "Small", "medium": "Medium", "large": "Large", "back": "Back",
         "dashboard": "Overview", "mission": "Intelligence for lasting water access",
         "landing_subtitle": "Bring funding, evidence, donor relationships and programme delivery together for clearer, accountable decisions.",
-        "open_workspace": "Access Wai Intelligence", "see_how": "Explore the workflow",
-        "built_for": "Built around WaterAid Canada’s operating realities",
-        "core_pillars": "Connected capabilities", "mission_impact": "Mission impact",
+        "open_workspace": "Find water insights",
+        "mission_impact": "Mission impact",
         "human_review": "Human review by design", "source_trace": "Evidence you can trace",
         "five_modules": "Five connected work areas", "workflow_label": "Shared decision workflow",
         "frame": "Frame", "diagnose": "Diagnose", "explore": "Explore", "decide": "Decide", "act": "Act",
@@ -165,9 +164,8 @@ I18N: dict[str, dict[str, str]] = {
         "small": "Petite", "medium": "Moyenne", "large": "Grande", "back": "Retour",
         "dashboard": "Vue d’ensemble", "mission": "L’intelligence au service d’un accès durable à l’eau",
         "landing_subtitle": "Réunissez le financement, les données probantes, les relations avec les donateurs et la mise en œuvre des programmes pour prendre des décisions claires et responsables.",
-        "open_workspace": "Accéder à Wai Intelligence", "see_how": "Explorer le processus",
-        "built_for": "Conçu pour les réalités opérationnelles de WaterAid Canada",
-        "core_pillars": "Capacités intégrées", "mission_impact": "Impact sur la mission",
+        "open_workspace": "Trouver des perspectives sur l’eau",
+        "mission_impact": "Impact sur la mission",
         "human_review": "Révision humaine intégrée", "source_trace": "Données probantes traçables",
         "five_modules": "Cinq domaines interconnectés", "workflow_label": "Processus décisionnel commun",
         "frame": "Cadrer", "diagnose": "Analyser", "explore": "Explorer", "decide": "Décider", "act": "Agir",
@@ -384,11 +382,39 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+# Initial credentials are generated for this packaged prototype. Passwords are not
+# stored in source; password.md contains the corresponding one-time handoff details.
+DEFAULT_LOGIN_RECORDS: dict[str, dict[str, str]] = {
+    "wai.admin@wai.local": {
+        "role": "admin",
+        "salt": "45ee4bb262fa609985affc43cebedccc",
+        "password_hash": "a1d4a657303cc97c6e1cb28ce56f6c288daa121b2f69d599a679696ffafc16ef",
+    },
+    "wai.staff@wai.local": {
+        "role": "main_user",
+        "salt": "1d8f457fa2ec8c1c909d26363a6ddef9",
+        "password_hash": "b13f0a598a63db8fabfeb16cd22355d562e8132426fff6e482ec6f9924b36705",
+    },
+}
+
+
+def _default_users() -> dict[str, dict[str, Any]]:
+    now = _utc_now()
+    return {
+        email: {
+            "email": email, "role": record["role"], "status": "active",
+            "salt": record["salt"], "password_hash": record["password_hash"],
+            "created_at": now, "is_generated_default": True,
+        }
+        for email, record in DEFAULT_LOGIN_RECORDS.items()
+    }
+
+
 def _seed_state() -> dict[str, Any]:
     return {
-        # No pre-created credentials. The first administrator creates an account
-        # through the one-time setup screen; that administrator can create staff accounts.
-        "users": {},
+        # Package includes one administrator and one staff login. Additional staff
+        # accounts can be created or revoked by the administrator.
+        "users": _default_users(),
         "opportunities": OFFICIAL_OPPORTUNITIES,
         "metrics": SAMPLE_METRICS,
         "donors": SAMPLE_DONORS,
@@ -485,8 +511,12 @@ def _repair_state(state: dict[str, Any]) -> dict[str, Any]:
             # Drop all seeded credentials from previous versions, including the old demo admin.
             users.pop(email, None)
             changed = True
-    # Never manufacture an administrator or password from environment defaults.
-    # Existing accounts are preserved; a first administrator is created explicitly at /setup.
+    # Ensure the two packaged login records are present in already-created state rows.
+    # Existing entries (including revoked accounts) are not overwritten.
+    for email, record in _default_users().items():
+        if email not in users:
+            users[email] = record
+            changed = True
     if changed:
         store.save(state)
     return state
@@ -797,44 +827,20 @@ async def landing(request: Request) -> HTMLResponse:
     return render(request, "landing.html", {"modules": MODULES})
 
 
-def _has_admin(state: dict[str, Any]) -> bool:
-    return any(record.get("role") == "admin" and record.get("status") == "active" for record in state.get("users", {}).values())
-
-
-@app.get("/setup", response_class=HTMLResponse)
-async def setup_page(request: Request) -> Any:
-    state = _repair_state(store.load())
-    if _has_admin(state):
-        return RedirectResponse("/login", status_code=303)
-    return render(request, "setup.html", {"setup_error": request.query_params.get("error", "")})
+@app.get("/setup")
+async def legacy_setup_redirect() -> RedirectResponse:
+    """Retain compatibility for old bookmarks without exposing account setup."""
+    return RedirectResponse("/login", status_code=303)
 
 
 @app.post("/setup", dependencies=[Depends(csrf_guard)])
-async def setup_admin(request: Request) -> RedirectResponse:
-    state = _repair_state(store.load())
-    if _has_admin(state):
-        return RedirectResponse("/login", status_code=303)
-    form = await request.form()
-    email = str(form.get("username", "")).strip().lower()
-    password = str(form.get("password", ""))
-    confirmation = str(form.get("password_confirmation", ""))
-    if "@" not in email or len(password) < 8 or password != confirmation:
-        return RedirectResponse("/setup?error=invalid", status_code=303)
-    state["users"][email] = {"email": email, "role": "admin", "status": "active", **_hash_password(password), "created_at": _utc_now(), "is_seed": False}
-    if not store.save(state) and store._db_configured:
-        # Do not report setup success if configured shared storage failed.
-        state["users"].pop(email, None)
-        store._memory = state
-        return RedirectResponse("/setup?error=storage", status_code=303)
-    return RedirectResponse("/login?notice=setup", status_code=303)
+async def legacy_setup_post_redirect() -> RedirectResponse:
+    return RedirectResponse("/login", status_code=303)
 
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request) -> Any:
-    state = _repair_state(store.load())
-    if not _has_admin(state):
-        return RedirectResponse("/setup", status_code=303)
-    user = authenticated_user(request, state)
+    user = authenticated_user(request)
     if user:
         return RedirectResponse("/app", status_code=303)
     return render(request, "login.html", {})
@@ -846,8 +852,6 @@ async def login(request: Request) -> RedirectResponse:
     email = str(form.get("username", "")).strip().lower()
     password = str(form.get("password", ""))
     state = _repair_state(store.load())
-    if not _has_admin(state):
-        return RedirectResponse("/setup", status_code=303)
     user = state.get("users", {}).get(email)
     if not user or user.get("status") != "active" or not _verify_password(password, user):
         return RedirectResponse("/login?error=invalid", status_code=303)
