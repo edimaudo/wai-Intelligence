@@ -18,17 +18,15 @@
 <div class="app-shell">
   <aside class="sidebar" id="app-navigation" aria-label="{{ t.primary_navigation }}">
     <a class="brand" href="/app" aria-label="{{ t.overview_aria }}"><span class="brand-symbol" aria-hidden="true"><span></span><span></span><span></span></span><span class="brand-copy"><strong>Wai</strong><small>INTELLIGENCE</small></span></a>
-    <div class="nav-section-label">{{ t.workspace }}</div>
+    <div class="nav-section-label">{{ t.overview }}</div>
     <nav class="primary-nav">
-      <a class="nav-link {% if request.url.path == '/app' %}active{% endif %}" href="/app"><span class="nav-index">00</span><span>{{ t.overview }}</span></a>
+      <a class="nav-link {% if request.url.path == '/app' %}active{% endif %}" href="/app"><span>{{ t.overview }}</span></a>
       <div class="nav-section-label nav-section-spaced">{{ t.five_modules }}</div>
-      {% for slug, mod in modules.items() %}<a class="nav-link {% if request.url.path == '/modules/' ~ slug %}active{% endif %}" href="/modules/{{ slug }}"><span class="nav-index">{{ mod.icon }}</span><span>{{ t[mod.nav] }}</span></a>{% endfor %}
-      <div class="nav-section-label nav-section-spaced">{{ t.workflow_label }}</div>
-      <a class="nav-link {% if request.url.path.startswith('/decisions') %}active{% endif %}" href="/decisions"><span class="nav-index">06</span><span>{{ t.decision_workbench }}</span></a>
-      <a class="nav-link {% if request.url.path.startswith('/exports') %}active{% endif %}" href="/exports"><span class="nav-index">07</span><span>{{ 'Data & integrations' if lang == 'en' else 'Données et intégrations' }}</span></a>
-      {% if user.role == 'admin' %}<a class="nav-link {% if request.url.path.startswith('/admin') %}active{% endif %}" href="/admin"><span class="nav-index">AD</span><span>{{ t.admin }}</span></a>{% endif %}
+      {% for slug, mod in modules.items() %}<a class="nav-link {% if request.url.path == '/modules/' ~ slug %}active{% endif %}" href="/modules/{{ slug }}"><span>{{ t[mod.nav] }}</span></a>{% endfor %}
+      <a class="nav-link {% if request.url.path.startswith('/exports') %}active{% endif %}" href="/exports"><span>{{ 'Data exports' if lang == 'en' else 'Exports de données' }}</span></a>
+      {% if user.role == 'admin' %}<a class="nav-link {% if request.url.path.startswith('/admin') %}active{% endif %}" href="/admin"><span>{{ t.admin }}</span></a>{% endif %}
     </nav>
-    <div class="sidebar-bottom"><div class="mini-status"><span class="status-dot"></span><span>{{ t.system_boundary }}</span></div><div class="sidebar-user"><div class="avatar">{{ user.email[:1].upper() }}</div><div class="sidebar-user-copy"><strong>{{ user.email }}</strong><small>{{ t.administrator if user.role == 'admin' else t.main_user }}</small></div></div></div>
+    <div class="sidebar-bottom"><div class="sidebar-user"><div class="avatar">{{ (user.display_name or user.email)[:1].upper() }}</div><div class="sidebar-user-copy"><strong>{{ user.display_name or (t.administrator if user.role == 'admin' else t.main_user) }}</strong><small>{{ t.administrator if user.role == 'admin' else t.main_user }}</small></div></div></div>
   </aside>
   <div class="main-shell">
     <header class="topbar"><div class="topbar-left"><button class="icon-button mobile-nav-toggle" type="button" id="nav-toggle" aria-expanded="false" aria-controls="app-navigation" aria-label="{{ t.toggle_navigation }}">☰</button><div class="topbar-context"><span class="breadcrumb-root">Wai Intelligence</span><span class="breadcrumb-separator">/</span><span class="breadcrumb-current">{% block breadcrumb %}{{ t.overview }}{% endblock %}</span></div></div>

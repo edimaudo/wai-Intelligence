@@ -2,7 +2,7 @@
 {% block title %}{{ t.sign_in }} | Wai Intelligence{% endblock %}
 {% block content %}
 <section class="login-layout">
-  <div class="login-intro"><h1>{{ t.login_title }}</h1><p>{{ t.login_subtitle }}</p><div class="login-value-list"><div><span class="check-mark">✓</span><span>{{ t.source_trace }}</span></div><div><span class="check-mark">✓</span><span>{{ t.human_review }}</span></div><div><span class="check-mark">✓</span><span>{{ t.workflow_label }}</span></div></div></div>
+  <div class="login-intro"><h1>{{ t.login_title }}</h1><p>{{ t.login_subtitle }}</p><div class="login-value-list"><div><span class="check-mark">✓</span><span>{{ t.source_trace }}</span></div><div><span class="check-mark">✓</span><span>{{ t.human_review }}</span></div></div></div>
   <div class="login-card"><div class="login-card-heading"><h2>{{ t.sign_in }}</h2><p>{{ 'Connectez-vous avec le compte fourni par votre administrateur.' if lang == 'fr' else 'Sign in with the account issued by your administrator.' }}</p></div>
     <form action="/login" method="post" class="form-stack"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="lang" value="{{ lang }}">
       <div class="form-field"><label for="username">{{ t.username }}</label><input id="username" name="username" type="email" autocomplete="username" required autofocus></div>

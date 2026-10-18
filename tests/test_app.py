@@ -50,7 +50,7 @@ def grant_staff_access(client: TestClient, username: str = "operator@example.org
     admin_page = client.get("/admin")
     created = client.post(
         "/admin/grant",
-        data={"csrf_token": csrf(admin_page.text), "username": username, "password": password},
+        data={"csrf_token": csrf(admin_page.text), "display_name": "Test Operator", "username": username, "password": password},
     )
     assert created.status_code == 303
     admin_page = client.get("/admin")
@@ -149,17 +149,17 @@ def test_staff_can_open_all_modules_and_admin_is_restricted(client):
         "/modules/donor-stewardship",
         "/modules/ethical-due-diligence",
         "/modules/grant-compliance",
-        "/decisions",
     ]
     for route in routes:
         response = client.get(route)
         assert response.status_code == 200, route
+    assert client.get("/decisions").status_code == 303
     response = client.get("/admin")
     assert response.status_code == 303
     assert response.headers["location"].startswith("/app?")
 
 
-def test_analysis_review_and_decision_workflow(client, monkeypatch):
+def test_analysis_review_is_integrated_in_work_area(client, monkeypatch):
     async def no_gemini(prompt, lang):
         return None
 
@@ -176,7 +176,7 @@ def test_analysis_review_and_decision_workflow(client, monkeypatch):
     analysis_url = submit.headers["location"].split("?", 1)[0]
     analysis_page = client.get(analysis_url)
     assert analysis_page.status_code == 200
-    assert "Synthetic" in analysis_page.text or "synthetic" in analysis_page.text
+    assert "Synthetic" not in analysis_page.text and "synthetic" not in analysis_page.text
 
     review_token = csrf(analysis_page.text)
     reviewed = client.post(
@@ -191,8 +191,8 @@ def test_analysis_review_and_decision_workflow(client, monkeypatch):
     pushed = client.post(f"{analysis_url}/decision", data={"csrf_token": decision_token})
     assert pushed.status_code == 303
     workbench = client.get("/decisions")
-    assert workbench.status_code == 200
-    assert "quarterly fundraising trend" in workbench.text
+    assert workbench.status_code == 303
+    assert workbench.headers["location"] == "/app"
 
 
 def test_admin_can_grant_and_revoke_staff_access(client):
@@ -202,7 +202,7 @@ def test_admin_can_grant_and_revoke_staff_access(client):
     token = csrf(page.text)
     granted = client.post(
         "/admin/grant",
-        data={"csrf_token": token, "username": "new.user@example.org", "password": "LongPassword!2026"},
+        data={"csrf_token": token, "display_name": "New Staff", "username": "new.user@example.org", "password": "LongPassword!2026"},
     )
     assert granted.status_code == 303
     assert wai.store._memory["users"]["new.user@example.org"]["status"] == "active"
@@ -237,7 +237,7 @@ def test_reporting_analysis_cache_is_reused(client, monkeypatch):
     second = client.post("/modules/intelligent-reporting/analyze", data=payload)
     assert second.status_code == 303
     assert len(wai.store._memory["analysis_cache"]) == 1
-    assert wai.store._memory["analyses"][-1]["mode"] == "rules-based-cached"
+    assert wai.store._memory["analyses"][-1]["mode"] == "local-cached"
 
 
 def test_document_upload_is_processed_in_memory(client, monkeypatch):
@@ -250,7 +250,7 @@ def test_document_upload_is_processed_in_memory(client, monkeypatch):
     page = client.get("/modules/grant-compliance")
     response = client.post(
         "/modules/grant-compliance/analyze",
-        data={"csrf_token": csrf(page.text), "objective": "Review reporting obligations in the sample document"},
+        data={"csrf_token": csrf(page.text), "objective": "Review reporting obligations in the sample document", "grant": "Test grant", "focus": "Obligations and reporting schedule"},
         files={"document": ("sample.txt", b"Synthetic reporting clause: monthly reporting by the 10th.", "text/plain")},
     )
     assert response.status_code == 303
@@ -278,7 +278,7 @@ def test_workspace_localizes_navigation_and_recent_work(client):
     assert 'lang="fr-CA"' in overview.text
     assert "Source de financement" in overview.text
     assert "Aucun brouillon pour le moment" in overview.text
-    assert "SYNTHETIC" not in overview.text
+    assert "synthetic" not in overview.text.lower()
     for slug in wai.MODULES:
         module = client.get(f"/modules/{slug}")
         assert module.status_code == 200
@@ -303,7 +303,7 @@ def test_authenticated_exports_and_data_integration_page(client):
     sign_in(client, "operator@example.org", "LongPassword!2026")
     page = client.get("/exports")
     assert page.status_code == 200
-    assert "Data &amp; integrations" in page.text or "Data & integrations" in page.text
+    assert "Data exports" in page.text
     assert "CRM_interacions_table1.csv" in page.text
     csv_export = client.get("/exports/constituent_profiles_table1.csv")
     assert csv_export.status_code == 200
@@ -320,10 +320,10 @@ def test_donor_stewardship_displays_data_folder_records(client):
     sign_in(client, "operator@example.org", "LongPassword!2026")
     page = client.get("/modules/donor-stewardship")
     assert page.status_code == 200
-    assert "Constituent profiles" in page.text
+    assert "CRM fields available" in page.text
     assert "437216659" in page.text
     assert "CRM_INTERACTION_TYPE" not in page.text
-    assert "Interactions CRM" in page.text or "CRM interactions" in page.text
+    assert "contact activity" in page.text or "Giving history" in page.text
 
 
 def test_login_page_never_displays_initial_credentials(client, monkeypatch):
@@ -363,3 +363,63 @@ def test_legacy_demo_admin_is_removed_instead_of_requiring_its_password(client):
     repaired = wai._repair_state(wai.store.load())
     assert "admin@wai.local" not in repaired["users"]
     assert client.get("/setup").headers["location"] == "/login"
+
+
+def test_overview_uses_display_name_and_no_decision_workbench(client):
+    sign_in(client, *read_password_file_credentials()["Staff user"])
+    page = client.get("/app")
+    assert page.status_code == 200
+    assert "Welcome, Wai Staff" in page.text
+    assert "wai.staff" not in page.text
+    assert "Decision workbench" not in page.text
+    assert "Illustrative fit only" not in page.text
+    assert "Figures are illustrative CAD totals" not in page.text
+
+
+def test_data_exports_show_only_source_datasets_and_no_connection_status(client):
+    sign_in(client, *read_password_file_credentials()["Staff user"])
+    page = client.get("/exports")
+    assert page.status_code == 200
+    assert "constituent_profiles_table1.csv" in page.text
+    assert "video_email_data_table1.csv" in page.text
+    assert "demo_kpis.csv" not in page.text
+    assert "Connection status" not in page.text
+    assert "Connection options" not in page.text
+
+
+def test_work_areas_follow_original_brief(client):
+    sign_in(client, *read_password_file_credentials()["Staff user"])
+    for slug in wai.MODULES:
+        page = client.get(f"/modules/{slug}")
+        assert page.status_code == 200
+        assert "Decision support, not autonomous approval" not in page.text
+        assert "rules-based demo mode" not in page.text.lower()
+    funding = client.get("/modules/grant-prospecting").text
+    assert "WASH" not in funding
+    assert "Research effort estimate" in funding
+    compliance = client.get("/modules/grant-compliance").text
+    assert "Documents to compare" in compliance
+    diligence = client.get("/modules/ethical-due-diligence").text
+    assert "Assessment structure" in diligence
+
+
+def test_reporting_upload_calculates_numeric_changes(client, monkeypatch):
+    async def no_gemini(prompt, lang):
+        return None
+    monkeypatch.setattr(wai, "_call_gemini", no_gemini)
+    sign_in(client, *read_password_file_credentials()["Staff user"])
+    page = client.get("/modules/intelligent-reporting")
+    response = client.post(
+        "/modules/intelligent-reporting/analyze",
+        data={"csrf_token": csrf(page.text), "objective": "Compare annual engagement", "audience": "Leadership team", "period": "2025 to 2026"},
+        files={"document": ("engagement.csv", b"period,engagement\n2025,10\n2026,15\n", "text/csv")},
+    )
+    assert response.status_code == 303
+    result = wai.store._memory["analyses"][-1]["result"]
+    assert "engagement" in result
+    assert "10.00" in result and "15.00" in result and "+50.0%" in result
+
+
+def test_expanded_source_tables_remain_under_25mb():
+    for filename in ("constituent_profiles_table1.csv", "CRM_interacions_table1.csv", "video_email_data_table1.csv"):
+        assert (wai.DATA_DIR / filename).stat().st_size < 25 * 1024 * 1024
