@@ -160,7 +160,7 @@ def test_staff_can_open_all_modules_and_admin_is_restricted(client):
 
 
 def test_analysis_review_is_integrated_in_work_area(client, monkeypatch):
-    async def no_gemini(prompt, lang):
+    async def no_gemini(prompt, lang, use_search=False):
         return None
 
     monkeypatch.setattr(wai, "_call_gemini", no_gemini)
@@ -224,7 +224,7 @@ def test_post_requires_valid_csrf_token(client):
 
 
 def test_reporting_analysis_cache_is_reused(client, monkeypatch):
-    async def no_gemini(prompt, lang):
+    async def no_gemini(prompt, lang, use_search=False):
         return None
 
     monkeypatch.setattr(wai, "_call_gemini", no_gemini)
@@ -241,7 +241,7 @@ def test_reporting_analysis_cache_is_reused(client, monkeypatch):
 
 
 def test_document_upload_is_processed_in_memory(client, monkeypatch):
-    async def no_gemini(prompt, lang):
+    async def no_gemini(prompt, lang, use_search=False):
         return None
 
     monkeypatch.setattr(wai, "_call_gemini", no_gemini)
@@ -315,15 +315,39 @@ def test_authenticated_exports_and_data_integration_page(client):
     assert client.get("/exports/not-a-dataset.csv").status_code == 404
 
 
-def test_donor_stewardship_displays_data_folder_records(client):
+def test_donor_stewardship_displays_joined_profile_crm_and_engagement_data(client):
     grant_staff_access(client)
     sign_in(client, "operator@example.org", "LongPassword!2026")
     page = client.get("/modules/donor-stewardship")
     assert page.status_code == 200
-    assert "CRM fields available" in page.text
-    assert "437216659" in page.text
+    assert "Morgan Ellis" in page.text
+    assert "Scenario profile" in page.text
+    assert "Previous correspondence" in page.text
+    assert "Permission and next action" in page.text
+    assert "Lifetime giving · source value" in page.text
+    assert "Recent CRM interactions" in page.text
+    assert "Email and video engagement" in page.text
+    assert "Prepare a stewardship brief" in page.text
+    assert "Browse constituent records" in page.text
     assert "CRM_INTERACTION_TYPE" not in page.text
-    assert "contact activity" in page.text or "Giving history" in page.text
+    assert "synthetic" not in page.text.lower()
+
+
+def test_donor_restrictions_hide_outbound_email_actions_and_context_is_exportable(client):
+    grant_staff_access(client)
+    sign_in(client, "operator@example.org", "LongPassword!2026")
+    context_rows = wai.read_dataset("donor_relationship_context")
+    restricted = next(row for row in context_rows if row["DISPLAY_NAME"] == "Avery Chen")
+    page = client.get(f"/modules/donor-stewardship?constituent_id={restricted['CONSTITUENT_ID']}")
+    assert page.status_code == 200
+    assert "Contact restriction needs review" in page.text
+    assert "Withdrawn" in page.text
+    form = re.search(r'<select id="purpose".*?</select>', page.text, re.S)
+    assert form and "Internal relationship review" in form.group(0)
+    assert "Thank-you / impact update draft" not in form.group(0)
+    exports = client.get("/exports")
+    assert "donor_relationship_context.csv" in exports.text
+    assert client.get("/exports/donor_relationship_context.csv").status_code == 200
 
 
 def test_login_page_never_displays_initial_credentials(client, monkeypatch):
@@ -387,24 +411,64 @@ def test_data_exports_show_only_source_datasets_and_no_connection_status(client)
     assert "Connection options" not in page.text
 
 
-def test_work_areas_follow_original_brief(client):
+def test_work_areas_have_distinct_brief_aligned_layouts_and_no_title_subtitles(client):
     sign_in(client, *read_password_file_credentials()["Staff user"])
+    pages = {}
     for slug in wai.MODULES:
         page = client.get(f"/modules/{slug}")
         assert page.status_code == 200
+        pages[slug] = page.text
         assert "Decision support, not autonomous approval" not in page.text
         assert "rules-based demo mode" not in page.text.lower()
-    funding = client.get("/modules/grant-prospecting").text
+        title = re.search(r'<header class="work-area-title"><h1>.*?</h1>(.*?)</header>', page.text, re.S)
+        assert title and "<p" not in title.group(1), f"Unneeded subtitle below title: {slug}"
+    funding = pages["grant-prospecting"]
     assert "WASH" not in funding
-    assert "Research effort estimate" in funding
-    compliance = client.get("/modules/grant-compliance").text
-    assert "Documents to compare" in compliance
-    diligence = client.get("/modules/ethical-due-diligence").text
-    assert "Assessment structure" in diligence
+    assert "Current funding pathways" in funding
+    assert "Peter Gilgan Foundation" in funding
+    assert "Canadian Global Community Impact Foundation" in funding
+    assert "Strong history · intake closed" in funding
+    assert "Local applicant required" in funding
+    assert "Eligibility and application process" in funding
+    assert "Published international grant history" in funding
+    assert "Monitoring effort and cost" in funding
+    assert "Record or update staff assessment" in funding
+    reporting = pages["intelligent-reporting"]
+    assert "Email engagement by send year" in reporting
+    assert "CRM interaction mix" in reporting
+    assert "Draft a report narrative" in reporting
+    stewardship = pages["donor-stewardship"]
+    assert "Constituent record" in stewardship and "Recent CRM interactions" in stewardship
+    assert "Email and video engagement" in stewardship
+    diligence = pages["ethical-due-diligence"]
+    assert "Partner review" in diligence and "Assessment criteria" in diligence
+    assert "Ownership and leadership" in diligence and "Source and date" in diligence
+    compliance = pages["grant-compliance"]
+    assert "Grant document review" in compliance
+    assert "Select the files to compare" in compliance
+    assert "Requirement map" in compliance and "Consistency checks" in compliance
+
+
+def test_funding_opportunity_staff_disposition_is_saved(client):
+    sign_in(client, *read_password_file_credentials()["Staff user"])
+    page = client.get("/modules/grant-prospecting")
+    assert page.status_code == 200
+    token = csrf(page.text)
+    response = client.post(
+        "/modules/grant-prospecting/review",
+        data={"csrf_token": token, "opportunity_id": "opp-gac-unsolicited", "decision": "monitor", "rationale": "Recheck eligibility after the programme concept is defined."},
+    )
+    assert response.status_code == 303
+    review = wai.store._memory["opportunity_reviews"]["opp-gac-unsolicited"]
+    assert review["decision"] == "monitor"
+    assert "programme concept" in review["rationale"]
+    updated = client.get("/modules/grant-prospecting")
+    assert "Staff decision" in updated.text
+    assert "Recheck eligibility after the programme concept is defined." in updated.text
 
 
 def test_reporting_upload_calculates_numeric_changes(client, monkeypatch):
-    async def no_gemini(prompt, lang):
+    async def no_gemini(prompt, lang, use_search=False):
         return None
     monkeypatch.setattr(wai, "_call_gemini", no_gemini)
     sign_in(client, *read_password_file_credentials()["Staff user"])
@@ -421,5 +485,5 @@ def test_reporting_upload_calculates_numeric_changes(client, monkeypatch):
 
 
 def test_expanded_source_tables_remain_under_25mb():
-    for filename in ("constituent_profiles_table1.csv", "CRM_interacions_table1.csv", "video_email_data_table1.csv"):
+    for filename in ("constituent_profiles_table1.csv", "CRM_interacions_table1.csv", "video_email_data_table1.csv", "donor_relationship_context.csv"):
         assert (wai.DATA_DIR / filename).stat().st_size < 25 * 1024 * 1024
