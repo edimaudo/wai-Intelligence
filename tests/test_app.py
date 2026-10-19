@@ -40,7 +40,7 @@ def sign_in(client: TestClient, username: str, password: str) -> None:
         data={"csrf_token": csrf(page.text), "username": username, "password": password, "lang": "en"},
     )
     assert response.status_code == 303
-    assert response.headers["location"] == "/app"
+    assert response.headers["location"] == "/modules/grant-prospecting"
 
 
 
@@ -84,7 +84,9 @@ def test_admin_and_staff_initial_logins_have_expected_permissions(client):
     page = client.get("/admin")
     client.post("/logout", data={"csrf_token": csrf(page.text)})
     sign_in(client, staff_email, staff_password)
-    assert client.get("/app").status_code == 200
+    app_root = client.get("/app")
+    assert app_root.status_code == 303
+    assert app_root.headers["location"] == "/modules/grant-prospecting"
     assert client.get("/admin").status_code == 303
 
 def test_public_routes_and_french_language(client):
@@ -142,8 +144,10 @@ def test_private_routes_require_login(client):
 def test_staff_can_open_all_modules_and_admin_is_restricted(client):
     grant_staff_access(client)
     sign_in(client, "operator@example.org", "LongPassword!2026")
+    app_root = client.get("/app")
+    assert app_root.status_code == 303
+    assert app_root.headers["location"] == "/modules/grant-prospecting"
     routes = [
-        "/app",
         "/modules/grant-prospecting",
         "/modules/intelligent-reporting",
         "/modules/donor-stewardship",
@@ -156,7 +160,7 @@ def test_staff_can_open_all_modules_and_admin_is_restricted(client):
     assert client.get("/decisions").status_code == 303
     response = client.get("/admin")
     assert response.status_code == 303
-    assert response.headers["location"].startswith("/app?")
+    assert response.headers["location"].startswith("/modules/grant-prospecting?")
 
 
 def test_analysis_review_is_integrated_in_work_area(client, monkeypatch):
@@ -192,7 +196,7 @@ def test_analysis_review_is_integrated_in_work_area(client, monkeypatch):
     assert pushed.status_code == 303
     workbench = client.get("/decisions")
     assert workbench.status_code == 303
-    assert workbench.headers["location"] == "/app"
+    assert workbench.headers["location"] == "/modules/grant-prospecting"
 
 
 def test_admin_can_grant_and_revoke_staff_access(client):
@@ -274,11 +278,14 @@ def test_workspace_localizes_navigation_and_recent_work(client):
         data={"csrf_token": csrf(login_page.text), "username": "operator@example.org", "password": "LongPassword!2026", "lang": "fr"},
     )
     assert result.status_code == 303
-    overview = client.get("/app")
-    assert 'lang="fr-CA"' in overview.text
-    assert "Source de financement" in overview.text
-    assert "Aucun brouillon pour le moment" in overview.text
-    assert "synthetic" not in overview.text.lower()
+    overview_redirect = client.get("/app")
+    assert overview_redirect.status_code == 303
+    assert overview_redirect.headers["location"] == "/modules/grant-prospecting"
+    first_module = client.get("/modules/grant-prospecting")
+    assert 'lang="fr-CA"' in first_module.text
+    assert "Voies de financement actuelles" in first_module.text
+    assert "Vue d’ensemble" not in first_module.text
+    assert "synthetic" not in first_module.text.lower()
     for slug in wai.MODULES:
         module = client.get(f"/modules/{slug}")
         assert module.status_code == 200
@@ -321,7 +328,7 @@ def test_donor_stewardship_displays_joined_profile_crm_and_engagement_data(clien
     page = client.get("/modules/donor-stewardship")
     assert page.status_code == 200
     assert "Morgan Ellis" in page.text
-    assert "Scenario profile" in page.text
+    assert "Relationship notes on file" in page.text
     assert "Previous correspondence" in page.text
     assert "Permission and next action" in page.text
     assert "Lifetime giving · source value" in page.text
@@ -329,8 +336,38 @@ def test_donor_stewardship_displays_joined_profile_crm_and_engagement_data(clien
     assert "Email and video engagement" in page.text
     assert "Prepare a stewardship brief" in page.text
     assert "Browse constituent records" in page.text
+    assert "Showing 1–10 of" in page.text
+    assert "Morgan Ellis" in page.text
+    assert '<details class="donor-browse-panel"' not in page.text
+    assert "Find by name or constituent ID" in page.text
     assert "CRM_INTERACTION_TYPE" not in page.text
     assert "synthetic" not in page.text.lower()
+
+
+
+def test_donor_profile_search_loads_ids_names_and_paginates_visible_records(client):
+    grant_staff_access(client)
+    sign_in(client, "operator@example.org", "LongPassword!2026")
+    default_page = client.get("/modules/donor-stewardship")
+    assert default_page.status_code == 200
+    assert "Find by name or constituent ID" in default_page.text
+    assert "Browse constituent records" in default_page.text
+    assert "Showing 1–10 of 20,009" in default_page.text
+
+    id_search = client.get("/modules/donor-stewardship?q=900000001")
+    assert id_search.status_code == 200
+    assert "Morgan Ellis" in id_search.text
+    assert "900000001" in id_search.text
+    assert "Showing 1–1 of 1" in id_search.text
+
+    name_search = client.get("/modules/donor-stewardship?q=Avery%20Chen")
+    assert name_search.status_code == 200
+    assert "Avery Chen" in name_search.text
+    assert "Contact restriction needs review" in name_search.text
+
+    page_two = client.get("/modules/donor-stewardship?page=2")
+    assert page_two.status_code == 200
+    assert "Showing 11–20 of 20,009" in page_two.text
 
 
 def test_donor_restrictions_hide_outbound_email_actions_and_context_is_exportable(client):
@@ -389,15 +426,19 @@ def test_legacy_demo_admin_is_removed_instead_of_requiring_its_password(client):
     assert client.get("/setup").headers["location"] == "/login"
 
 
-def test_overview_uses_display_name_and_no_decision_workbench(client):
+def test_app_root_skips_overview_and_uses_named_account(client):
     sign_in(client, *read_password_file_credentials()["Staff user"])
     page = client.get("/app")
-    assert page.status_code == 200
-    assert "Welcome, Wai Staff" in page.text
-    assert "wai.staff" not in page.text
-    assert "Decision workbench" not in page.text
-    assert "Illustrative fit only" not in page.text
-    assert "Figures are illustrative CAD totals" not in page.text
+    assert page.status_code == 303
+    assert page.headers["location"] == "/modules/grant-prospecting"
+    funding = client.get("/modules/grant-prospecting")
+    assert "Alex Morgan" in funding.text
+    assert "Wai Staff" not in funding.text
+    assert "Staff user" not in funding.text
+    assert "Overview" not in funding.text
+    assert "Work Areas" not in funding.text
+    assert "Illustrative fit only" not in funding.text
+    assert "Figures are illustrative CAD totals" not in funding.text
 
 
 def test_data_exports_show_only_source_datasets_and_no_connection_status(client):
@@ -487,3 +528,86 @@ def test_reporting_upload_calculates_numeric_changes(client, monkeypatch):
 def test_expanded_source_tables_remain_under_25mb():
     for filename in ("constituent_profiles_table1.csv", "CRM_interacions_table1.csv", "video_email_data_table1.csv", "donor_relationship_context.csv"):
         assert (wai.DATA_DIR / filename).stat().st_size < 25 * 1024 * 1024
+
+
+def test_sidebar_has_only_direct_work_area_links_and_no_overview_group(client):
+    sign_in(client, *read_password_file_credentials()["Staff user"])
+    page = client.get("/modules/grant-prospecting")
+    nav_match = re.search(r'<nav class="primary-nav".*?</nav>', page.text, re.S)
+    assert nav_match, "Expected the primary work-area navigation"
+    nav = nav_match.group(0)
+    expected = {
+        "/modules/grant-prospecting",
+        "/modules/intelligent-reporting",
+        "/modules/donor-stewardship",
+        "/modules/ethical-due-diligence",
+        "/modules/grant-compliance",
+    }
+    assert {path for path in re.findall(r'href="([^"]+)"', nav)} == expected
+    assert "Overview" not in nav and "Work Areas" not in nav
+
+
+def test_organization_context_is_embedded_in_work_areas_and_persisted(client):
+    sign_in(client, *read_password_file_credentials()["Staff user"])
+    page = client.get("/modules/grant-prospecting")
+    payload = {
+        "csrf_token": csrf(page.text),
+        "return_to": "/modules/grant-prospecting",
+        "mission_vision": "Safe water and sanitation for all communities.",
+        "long_term_objectives": "Expand resilient services with local partners.",
+        "growth_approach": "Build partnerships and diversify funding.",
+        "key_advantages": "Long-term local partnerships and WASH expertise.",
+        "community_impact": "Improve lasting access and community resilience.",
+    }
+    saved = client.post("/organization-context", data=payload)
+    assert saved.status_code == 303
+    assert saved.headers["location"] == "/modules/grant-prospecting?notice=organization-context-saved"
+    assert wai.store._memory["settings"]["organization_context"]["mission_vision"] == payload["mission_vision"]
+    for slug in wai.MODULES:
+        area = client.get(f"/modules/{slug}")
+        assert area.status_code == 200
+        assert "Organization context" in area.text
+        assert payload["mission_vision"] in area.text
+        assert "Save context for all work areas" in area.text
+
+
+def test_gemini_work_area_prompts_include_shared_context_and_search_for_research_modules(client, monkeypatch):
+    calls = []
+    async def fake_gemini(prompt, lang, use_search=False):
+        calls.append({"prompt": prompt, "use_search": use_search})
+        return "Gemini-generated test analysis."
+    monkeypatch.setattr(wai, "GEMINI_API_KEY", "unit-test-api-key")
+    monkeypatch.setattr(wai, "_call_gemini", fake_gemini)
+    sign_in(client, *read_password_file_credentials()["Staff user"])
+    page = client.get("/modules/grant-prospecting")
+    client.post("/organization-context", data={
+        "csrf_token": csrf(page.text), "return_to": "/modules/grant-prospecting",
+        "mission_vision": "Organizational mission for Gemini test",
+        "long_term_objectives": "Long-term objective for Gemini test",
+        "growth_approach": "Growth approach for Gemini test",
+        "key_advantages": "Strength for Gemini test",
+        "community_impact": "Community impact for Gemini test",
+    })
+    profile_page = client.get("/modules/donor-stewardship")
+    donor_id = next(cid for cid in wai.donor_indexes()["profiles"] if cid in wai.donor_indexes()["context"])
+    forms = [
+        ("grant-prospecting", {"objective": "Assess Canadian funding leads", "priorities": "International water access", "capacity": "Small fundraising team", "criteria": "Canadian donors"}, True, False),
+        ("intelligent-reporting", {"objective": "Explain engagement trends", "audience": "Leadership team", "period": "Annual comparison", "context": "Review engagement changes"}, False, False),
+        ("donor-stewardship", {"objective": "Prepare a donor brief", "donor": donor_id, "purpose": "Routine stewardship", "extra_context": "Only verified context"}, False, False),
+        ("ethical-due-diligence", {"objective": "Assess partner risk", "partner": "Example Entity Ltd", "evidence_urls": "https://example.org", "framework": "Approved ethical criteria", "scope": "Ownership and legal matters"}, True, False),
+        ("grant-compliance", {"objective": "Review grant package", "grant": "Example grant", "document_versions": "Proposal v2", "focus": "Full lifecycle review"}, True, True),
+    ]
+    for slug, formdata, should_search, with_document in forms:
+        target = client.get(f"/modules/{slug}")
+        data = {"csrf_token": csrf(target.text), **formdata}
+        if with_document:
+            response = client.post(f"/modules/{slug}/analyze", data=data, files={"document": ("grant.txt", b"Reporting is required monthly.", "text/plain")})
+        else:
+            response = client.post(f"/modules/{slug}/analyze", data=data)
+        assert response.status_code == 303, slug
+    assert len(calls) == 5
+    for call in calls:
+        assert "Organizational mission for Gemini test" in call["prompt"]
+        assert "Strategy" in call["prompt"] and "Financial Modeling/Analysis" in call["prompt"]
+    assert [call["use_search"] for call in calls] == [True, False, False, True, True]
+    assert all("Gemini-generated test analysis" in record["result"] for record in wai.store._memory["analyses"][-5:])

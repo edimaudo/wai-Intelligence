@@ -79,6 +79,8 @@ a:hover { color: var(--cyan); }
 .nav-section-label { padding: 0 12px 9px; color: var(--sidebar-muted); font-size: .63rem; font-weight: 700; letter-spacing: .11em; text-transform: uppercase; }
 .nav-section-spaced { margin-top: 26px; }
 .primary-nav { display: flex; flex-direction: column; gap: 4px; }
+.sidebar-utilities { display: flex; flex-direction: column; gap: 4px; margin-top: 18px; padding-top: 12px; border-top: 1px solid #2B393E; }
+.sidebar-utility-link { margin-top: 6px; }
 .nav-link { position: relative; display: flex; align-items: center; gap: 11px; min-height: 42px; padding: 8px 12px; border-radius: 6px; color: #CBD6DA; font-size: .87rem; text-decoration: none; transition: background .15s ease, color .15s ease; }
 .nav-link:hover { color: #FFFFFF; background: #202B2F; }
 .nav-link.active { color: #FFFFFF; background: #21333B; font-weight: 600; }
@@ -740,8 +742,14 @@ td strong { display: block; margin-bottom: 3px; color: var(--ink); font-size: .7
 .reporting-recency-panel { margin-top: 15px; padding: 18px 20px; }
 .reporting-recency-panel .panel-heading { margin-bottom: 12px; }
 .reporting-recency-panel .metric-definition-note { margin: 10px 0 0; }
-.donor-queue-details { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
-.donor-queue-details .table-wrap { margin-top: 12px; }
+.donor-browse-panel { margin-top: 18px; padding: 16px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); overflow: hidden; }
+.donor-browse-panel .donor-queue-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 10px; }
+.donor-browse-panel .donor-queue-heading > div { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; width: 100%; }
+.donor-browse-panel .table-wrap { overflow-x: auto; }
+.donor-browse-pagination { display: flex; align-items: center; justify-content: center; gap: 15px; margin-top: 12px; color: var(--ink-secondary); font-size: .75rem; }
+.donor-clear-search { display: inline-block; margin-top: 8px; font-size: .72rem; }
+.donor-browse-empty { padding: 12px 0; }
+.donor-browse-panel .table-wrap { margin-top: 12px; }
 /* Compliance output map uses horizontal work products, rather than a second vertical sidebar. */
 .grant-output-map { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; }
 .grant-output-map > .panel-heading, .grant-version-note { grid-column: 1 / -1; }
@@ -814,3 +822,14 @@ td strong { display: block; margin-bottom: 3px; color: var(--ink); font-size: .7
 .stewardship-workspace .donor-queue-details { overflow:hidden; }
 .stewardship-workspace .donor-queue-details table { min-width:900px; }
 @media (max-width:720px) { .donor-context-grid { grid-template-columns:minmax(0,1fr); } .donor-context-fields { grid-template-columns:minmax(0,1fr); } .donor-identity-line { align-items:flex-start; flex-direction:column; } .donor-identity-badges { justify-content:flex-start; } }
+
+/* Shared organizational context is kept inside each work area, not a separate overview page. */
+.organization-context-panel { margin: 0 0 16px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.organization-context-panel > summary { cursor: pointer; padding: 13px 16px; color: var(--ink); font-size: .82rem; font-weight: 650; list-style-position: inside; }
+.organization-context-panel[open] > summary { border-bottom: 1px solid var(--line); }
+.organization-context-form { padding: 15px 16px 16px; }
+.organization-context-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin-bottom: 13px; }
+.organization-context-grid .form-field { min-width: 0; }
+.organization-context-grid textarea { min-height: 68px; }
+@media (max-width: 900px) { .organization-context-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width: 600px) { .organization-context-grid { grid-template-columns: minmax(0,1fr); } }
