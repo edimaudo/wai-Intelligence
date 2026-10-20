@@ -100,22 +100,6 @@ def reporting_dashboard() -> dict[str, Any]:
     profiles_with_gifts = sum(1 for r in profiles if _number(r.get("LIFETIME_GIFT_COUNT")) > 0)
     profiles_missing_last_gift = sum(1 for r in profiles if not _is_recorded(r.get("LAST_GIFT_DATE")))
     capacity_recorded = sum(1 for r in profiles if _is_recorded(r.get("CAPACITY_ESTIMATE")))
-    latest_gift_year_counts = Counter(
-        _year(r.get("LAST_GIFT_DATE")) or "Not recorded"
-        for r in profiles
-    )
-    known_gift_years = sorted(y for y in latest_gift_year_counts if y != "Not recorded")
-    visible_gift_years = known_gift_years[-8:]
-    older_gift_year_count = sum(latest_gift_year_counts[y] for y in known_gift_years if y not in visible_gift_years)
-    gift_recency_by_year = [{"year": y, "count": latest_gift_year_counts[y]} for y in visible_gift_years]
-    if older_gift_year_count:
-        gift_recency_by_year.insert(0, {"year": "Earlier", "count": older_gift_year_count})
-    if latest_gift_year_counts.get("Not recorded"):
-        gift_recency_by_year.append({"year": "Not recorded", "count": latest_gift_year_counts["Not recorded"]})
-    max_gift_year = max((item["count"] for item in gift_recency_by_year), default=1)
-    for item in gift_recency_by_year:
-        item["bar_width"] = round(item["count"] / max_gift_year * 100, 1)
-
     by_type = Counter((r.get("CRM_INTERACTION_TYPE") or "Not specified").strip() for r in interactions)
     interaction_types = [{"name": name, "count": count, "share": round(count / max(1, len(interactions)) * 100, 1)} for name, count in by_type.most_common(7)]
     interaction_by_year = Counter(y for y in (_year(r.get("CRM_INTERACTION_DATE")) for r in interactions) if y)
@@ -164,6 +148,30 @@ def reporting_dashboard() -> dict[str, Any]:
         source_files.append({"key": key, "file": name, "rows": len(rows), "columns": list(rows[0].keys()) if rows else [],
                              "date_min": date_values[0] if date_values else "—", "date_max": date_values[-1] if date_values else "—"})
 
+    gift_count_segments = Counter()
+    for row in profiles:
+        raw_count = row.get("LIFETIME_GIFT_COUNT")
+        if not _is_recorded(raw_count):
+            gift_count_segments["Gift history missing"] += 1
+            continue
+        count = _number(raw_count)
+        if count <= 0:
+            gift_count_segments["No gifts recorded"] += 1
+        elif count == 1:
+            gift_count_segments["Single-gift constituent"] += 1
+        else:
+            gift_count_segments["Repeat constituent"] += 1
+    total_profiles = max(1, len(profiles))
+    constituent_segments = [
+        {"label": label, "count": count, "share": round(count / total_profiles * 100, 1)}
+        for label, count in [
+            ("Repeat constituent", gift_count_segments["Repeat constituent"]),
+            ("Single-gift constituent", gift_count_segments["Single-gift constituent"]),
+            ("No gifts recorded", gift_count_segments["No gifts recorded"]),
+            ("Gift history missing", gift_count_segments["Gift history missing"]),
+        ] if count or label == "Repeat constituent"
+    ]
+
     return {
         **metrics,
         "profiles_with_gifts": profiles_with_gifts,
@@ -171,9 +179,39 @@ def reporting_dashboard() -> dict[str, Any]:
         "capacity_recorded": capacity_recorded,
         "interaction_types": interaction_types,
         "yearly_engagement": yearly_engagement,
-        "gift_recency_by_year": gift_recency_by_year,
+        "constituent_segments": constituent_segments,
         "source_files": source_files,
         "metric_note": "Calculated from the loaded CSV records. Giving values have no currency definition; profile-level lifetime totals cannot be interpreted as a period fundraising total. CRM and email/video rows do not measure programme outcomes.",
+    }
+
+
+def revenue_summary(revenue_state: dict[str, Any] | None) -> dict[str, Any]:
+    """Summarize uploaded gift transactions by year and currency; never infer revenue from lifetime profile totals."""
+    state = revenue_state or {}
+    rows = state.get("rows", []) if isinstance(state, dict) else []
+    forecasts: list[dict[str, Any]] = []
+    by_currency: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        by_currency[str(row.get("currency") or "Unspecified")].append(row)
+    for currency, series in by_currency.items():
+        series.sort(key=lambda row: int(row["year"]))
+        if len(series) < 3:
+            continue
+        xs = [float(int(row["year"])) for row in series]
+        ys = [float(row["revenue"]) for row in series]
+        mean_x = sum(xs) / len(xs)
+        mean_y = sum(ys) / len(ys)
+        denominator = sum((x - mean_x) ** 2 for x in xs)
+        slope = (sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys)) / denominator) if denominator else 0.0
+        forecast_year = int(xs[-1]) + 1
+        forecasts.append({"currency": currency, "year": forecast_year, "revenue": round(mean_y + slope * (forecast_year - mean_x), 2), "history_years": len(series)})
+    return {
+        "annual_revenue": rows,
+        "revenue_filename": state.get("filename", ""),
+        "revenue_imported_at": state.get("imported_at", ""),
+        "revenue_transactions": state.get("transactions", 0),
+        "revenue_ignored_rows": state.get("ignored_rows", 0),
+        "revenue_forecasts": forecasts,
     }
 
 
@@ -771,12 +809,13 @@ def _seed_state() -> dict[str, Any]:
         # Package includes one administrator and one staff login. Additional staff
         # accounts can be created or revoked by the administrator.
         "users": _default_users(),
-        "opportunities": OFFICIAL_OPPORTUNITIES,
+        "opportunities": [dict(item) for item in OFFICIAL_OPPORTUNITIES],
         "analyses": [],
         "analysis_cache": {},
         "feedback": [],
         "opportunity_reviews": {},
-        "settings": {"source_review_frequency_days": 14, "funding_min_fit": 60, "last_source_snapshot": "2026-10-18", "snapshot_note": "Check current funder details before acting.", "organization_context": {}},
+        "yearly_revenue": {},
+        "settings": {"source_review_frequency_days": 14, "funding_min_fit": 60, "last_source_snapshot": "2026-10-18", "snapshot_note": "Check current funder details before acting."},
     }
 
 
@@ -848,24 +887,28 @@ store = StateStore()
 
 
 def _repair_state(state: dict[str, Any]) -> dict[str, Any]:
-    required_keys = ("users", "opportunities", "analyses", "analysis_cache", "feedback", "opportunity_reviews", "settings")
+    required_keys = ("users", "opportunities", "analyses", "analysis_cache", "feedback", "opportunity_reviews", "yearly_revenue", "settings")
     seed = _seed_state()
     changed = False
     for key in required_keys:
         if key not in state:
             state[key] = seed[key]
             changed = True
-    # This app has no staff editing workflow for the fixed pathway reference set;
-    # replace legacy placeholder scores with the current source-linked screening.
-    if state.get("opportunities") != OFFICIAL_OPPORTUNITIES:
-        state["opportunities"] = OFFICIAL_OPPORTUNITIES
+    # Keep the canonical source register current while preserving staff-added pathways.
+    saved_opportunities = state.get("opportunities", [])
+    staff_added = [item for item in saved_opportunities if isinstance(item, dict) and item.get("custom") and item.get("id")]
+    canonical = {item["id"]: item for item in OFFICIAL_OPPORTUNITIES}
+    for item in staff_added:
+        if item["id"] not in canonical:
+            canonical[item["id"]] = item
+    merged_opportunities = list(canonical.values())
+    if saved_opportunities != merged_opportunities:
+        state["opportunities"] = merged_opportunities
         changed = True
     settings = state.setdefault("settings", {})
-    if not isinstance(settings.get("organization_context"), dict):
-        settings["organization_context"] = {}
+    if "organization_context" in settings:
+        settings.pop("organization_context", None)
         changed = True
-    else:
-        settings.setdefault("organization_context", {})
     if settings.get("last_source_snapshot") != "2026-10-18":
         settings["last_source_snapshot"] = "2026-10-18"
         changed = True
@@ -1027,7 +1070,8 @@ def _sample_context_for_module(slug: str, state: dict[str, Any], lang: str, fiel
         opportunities = [{k: v for k, v in item.items() if k not in {"screen_class", "kind"}} for item in state.get("opportunities", [])]
         return "Current funding pathways and the latest recorded screen, based on public Canadian funding pages checked on 18 October 2026. This is a source snapshot, not continuous monitoring:\n" + json.dumps(opportunities, ensure_ascii=False, indent=2)
     if slug == "intelligent-reporting":
-        return "Calculated report dataset, derived measures, source date ranges, interaction mix and email/video results:\n" + json.dumps(reporting_dashboard(), ensure_ascii=False, indent=2)
+        report_data = {**reporting_dashboard(), **revenue_summary(state.get("yearly_revenue", {}))}
+        return "Calculated report dataset, yearly email/video measures, constituent segments, imported annual revenue and available forecast inputs:\n" + json.dumps(report_data, ensure_ascii=False, indent=2)
     if slug == "donor-stewardship":
         snapshot = donor_snapshot(fields.get("donor", ""))
         return ("Selected constituent profile, linked CRM interactions and email/video history, plus the optional donor_relationship_context record. That context file contains named scenario profiles for selected generated test IDs; treat those names, notes, preferences, permission states and follow-up tasks as scenario material, never as real WaterAid constituent facts. For IDs without a linked context row, do not infer names, correspondence, preferences or consent.\n" + json.dumps(snapshot, ensure_ascii=False, indent=2))
@@ -1091,24 +1135,41 @@ def _fallback_analysis(slug: str, form_data: dict[str, str], state: dict[str, An
                 lines += ["", ("Le fichier CSV n’a pas pu être analysé." if fr else "The CSV could not be parsed.")]
         else:
             metrics = reporting_dashboard()
+            revenue = revenue_summary(state.get("yearly_revenue", {}))
             if fr:
                 lines += ["", f"- Profils: {metrics['profiles']:,}; profils avec dons consignés: {metrics['profiles_with_gifts']:,}; prospects suivis: {metrics['managed_prospects']:,}; dates de dernier don manquantes: {metrics['profiles_missing_last_gift']:,}.",
                           f"- Courriels livrés: {metrics['delivered_emails']:,}; ouverts: {metrics['opened_emails']:,}; taux d’ouverture: {metrics['email_open_rate']}%.",
-                          f"- Interactions CRM: {metrics['interactions']:,}; démarrages vidéo: {metrics['video_starts']:,}; vidéos terminées: {metrics['finished_videos']:,}; complétion après démarrage: {metrics['video_finish_rate']}%.", "", "## Tendances par année"]
+                          f"- Démarrages vidéo: {metrics['video_starts']:,}; vidéos terminées: {metrics['finished_videos']:,}; complétion après démarrage: {metrics['video_finish_rate']}%.", "", "## Engagement annuel courriel et vidéo"]
                 for row in metrics['yearly_engagement']:
-                    lines.append(f"- {row['year']}: {row['delivered']:,} livrés; taux d’ouverture {row['open_rate']}%; interactions CRM {row['interactions']:,}; démarrages vidéo {row['starts']:,}; complétion {row['video_completion_rate']}%.")
-                lines += ["", "## Année du dernier don (nombre de profils)"]
-                for row in metrics['gift_recency_by_year']:
-                    lines.append(f"- {row['year']}: {row['count']:,} profils")
+                    lines.append(f"- {row['year']}: {row['delivered']:,} courriels livrés; ouverture {row['open_rate']}%; clics {row['clicked']:,}; démarrages vidéo {row['starts']:,}; vidéos terminées {row['finished']:,}; complétion {row['video_completion_rate']}%.")
+                lines += ["", "## Segmentation des constituants"]
+                for segment in metrics['constituent_segments']:
+                    lines.append(f"- {segment['label']}: {segment['count']:,} ({segment['share']}%).")
+                if revenue['annual_revenue']:
+                    lines += ["", "## Revenus annuels réels importés"]
+                    for row in revenue['annual_revenue']:
+                        lines.append(f"- {row['year']} {row['currency']}: {row['revenue']:,.2f}; {row['gift_count']:,} dons.")
+                if revenue['revenue_forecasts']:
+                    lines += ["", "## Prévisions de revenus (tendance linéaire)"]
+                    for row in revenue['revenue_forecasts']:
+                        lines.append(f"- {row['year']} {row['currency']}: {row['revenue']:,.2f}; fondé sur {row['history_years']} années historiques.")
             else:
                 lines += ["", f"- Constituent profiles: {metrics['profiles']:,}; profiles with a recorded gift: {metrics['profiles_with_gifts']:,}; managed prospects: {metrics['managed_prospects']:,}; missing last-gift dates: {metrics['profiles_missing_last_gift']:,}.",
                           f"- Emails delivered: {metrics['delivered_emails']:,}; opened: {metrics['opened_emails']:,}; open rate: {metrics['email_open_rate']}%.",
-                          f"- CRM interactions: {metrics['interactions']:,}; video starts: {metrics['video_starts']:,}; completed videos: {metrics['finished_videos']:,}; completion after start: {metrics['video_finish_rate']}%.", "", "## Annual trends"]
+                          f"- Video starts: {metrics['video_starts']:,}; completed videos: {metrics['finished_videos']:,}; completion after start: {metrics['video_finish_rate']}%.", "", "## Yearly email and video engagement"]
                 for row in metrics['yearly_engagement']:
-                    lines.append(f"- {row['year']}: {row['delivered']:,} delivered; open rate {row['open_rate']}%; CRM interactions {row['interactions']:,}; video starts {row['starts']:,}; completion {row['video_completion_rate']}%.")
-                lines += ["", "## Year of last recorded gift (profile count)"]
-                for row in metrics['gift_recency_by_year']:
-                    lines.append(f"- {row['year']}: {row['count']:,} profiles")
+                    lines.append(f"- {row['year']}: {row['delivered']:,} emails delivered; open rate {row['open_rate']}%; clicked records {row['clicked']:,}; video starts {row['starts']:,}; completed videos {row['finished']:,}; completion {row['video_completion_rate']}%.")
+                lines += ["", "## Constituent segmentation"]
+                for segment in metrics['constituent_segments']:
+                    lines.append(f"- {segment['label']}: {segment['count']:,} ({segment['share']}%).")
+                if revenue['annual_revenue']:
+                    lines += ["", "## Imported annual revenue"]
+                    for row in revenue['annual_revenue']:
+                        lines.append(f"- {row['year']} {row['currency']}: {row['revenue']:,.2f}; {row['gift_count']:,} gifts.")
+                if revenue['revenue_forecasts']:
+                    lines += ["", "## Revenue forecasts (linear trend)"]
+                    for row in revenue['revenue_forecasts']:
+                        lines.append(f"- {row['year']} {row['currency']}: {row['revenue']:,.2f}; based on {row['history_years']} historical years.")
         lines += ["", next_heading, ("Distinguez les tendances observées de leurs causes possibles. La définition monétaire et les mesures de résultats de programmes ne figurent pas dans ces fichiers." if fr else "Separate observed trends from possible causes. Currency definition and programme-outcome measures are not present in these files.")]
     elif slug == "donor-stewardship":
         selected = form_data.get("donor", "")
@@ -1189,7 +1250,7 @@ async def _call_gemini(prompt: str, lang: str, use_search: bool = False) -> str 
         return None
 
 
-def _analysis_prompt(slug: str, fields: dict[str, str], sample_context: str, uploaded_text: str, source_refs: list[str], lang: str, organization_context: dict[str, str] | None = None) -> str:
+def _analysis_prompt(slug: str, fields: dict[str, str], sample_context: str, uploaded_text: str, source_refs: list[str], lang: str) -> str:
     labels = {"grant-prospecting": "Grant and foundation prospecting", "intelligent-reporting": "Intelligent reporting and dashboard narratives", "donor-stewardship": "Personalized donor stewardship", "ethical-due-diligence": "Ethical partnership due diligence", "grant-compliance": "Proposal and grant compliance"}
     task_guidance = {
         "grant-prospecting": "Research and screen Canadian foundations, corporate funders and public programmes with a record or credible potential to support international initiatives. Search current public sources. Compare each lead with the user's stated programme priorities, country/geography, applicant eligibility, deadline, amount/co-funding if stated, required attachments and remaining staff capacity. Output a ranked shortlist with: pursue / monitor / decline, evidence-based fit reasons, eligibility blockers, deadline/source checked date, a concise case for support, uncertainties, recommended next action, and any relationship/network lead only where a public source supports it. Do not invent a numeric fit or win probability. Do not assume a sector or country beyond the user-provided priorities.",
@@ -1198,12 +1259,8 @@ def _analysis_prompt(slug: str, fields: dict[str, str], sample_context: str, upl
         "ethical-due-diligence": "Conduct fresh public-source research for the named legal entity and examine user-provided URLs when available. Use the supplied ethical standards/policy and the user's criteria. Build a structured assessment by criterion: finding, source title and URL, publication/access date if available, source reliability, status as allegation/investigation/formal finding/response, what it establishes, uncertainty and gap. Identify missing ownership/leadership, legal/regulatory, environmental/social, safeguarding, affiliation, geographic activity and philanthropic-priority evidence. Give only an indicative go / no-go / escalate recommendation tied to stated policy criteria and describe specific reviewer questions. Absence of evidence is not evidence of a clean record.",
         "grant-compliance": "Review the supplied call/guidance, proposal, agreement/amendments, budget, workplan and progress report as one document set. Search public sources for the named funder's current requirements and relevant publicly documented past projects where applicable. Structure the result as: requirements/eligibility matrix with quoted evidence; proposal quality and logic-model/indicator critique; obligation register with owner, deadline, report/evidence requirement and clause/page; cross-document conflicts for budget, scope, dates, indicators and commitments; missing evidence and bottlenecks requiring human intervention. Distinguish binding agreement terms from funder guidance and team assumptions. Never invent page or clause numbers, and identify the file/version for each observation."
     }
-    organization_context = organization_context or {}
-    organization_context_text = json.dumps(organization_context, ensure_ascii=False, indent=2) if any(str(value or "").strip() for value in organization_context.values()) else "[No organization context has been recorded yet]"
     return (
         f"Work area: {labels[slug]}\n"
-        "Organization-wide context entered by staff (use as planning context, not independent evidence):\n"
-        f"{organization_context_text}\n\n"
         "Cross-pillar lens from the brief: consider Strategy (mission, vision, long-term planning, growth and impact), Marketing (stakeholder understanding, communications and outreach), Operational Effectiveness (operating model, services, delivery and capacity), and Financial Modeling/Analysis (revenue diversity, cost and resource feasibility). Apply only the dimensions relevant to this work area and explicitly label financial or outcome assumptions.\n\n"
         f"Selected user inputs (treat as user-provided, not independently verified):\n"
         f"{json.dumps(fields, ensure_ascii=False, indent=2)}\n\nEvidence supplied by the application:\n{sample_context}\n\n"
@@ -1408,12 +1465,22 @@ async def module_page(request: Request, slug: str) -> Any:
         browse_page = donor_browse_page(search_query, int(request.query_params.get("page", "1") or "1"), 10)
     selected_snapshot = donor_snapshot(selected_constituent) if slug == "donor-stewardship" else None
     dashboard = reporting_dashboard() if slug == "intelligent-reporting" else {}
+    if slug == "intelligent-reporting":
+        dashboard = {**dashboard, **revenue_summary(state.get("yearly_revenue", {}))}
     catalog = [{"key": key, **value, "rows": len(read_dataset(key)), "columns": list(read_dataset(key)[0].keys()) if read_dataset(key) else []} for key, value in DATASETS.items()] if slug in {"intelligent-reporting", "donor-stewardship"} else []
+    opportunity_items = state.get("opportunities", []) if slug == "grant-prospecting" else []
+    funding_page = min(max(int(request.query_params.get("funding_page", "1") or "1"), 1), max(1, (len(opportunity_items) + 4) // 5))
+    funding_page_count = max(1, (len(opportunity_items) + 4) // 5)
+    visible_opportunities = opportunity_items[(funding_page - 1) * 5:funding_page * 5]
     return render(request, "module.html", {
         "slug": slug, "module": module, "module_description": _module_text(module, language),
         "module_support": _module_support(module, language),
         "fields": [{"key": f[0], "label": _field_label(f, language), "type": f[2], "hint": _field_hint(f, language), "options": ([{"value": row.get("CONSTITUENT_ID", ""), "label": row.get("CONSTITUENT_ID", "")} for row in read_dataset("constituent_profiles_table1")[:200]] if slug == "donor-stewardship" and f[0] == "donor" else _field_options(f, language)), "required": f[4]} for f in module["fields"]],
-        "source_items": state["opportunities"] if slug == "grant-prospecting" else [],
+        "source_items": visible_opportunities,
+        "source_all_items": opportunity_items,
+        "source_total_count": len(opportunity_items),
+        "funding_page": funding_page,
+        "funding_page_count": funding_page_count,
         "opportunity_reviews": state.get("opportunity_reviews", {}) if slug == "grant-prospecting" else {},
         "metrics": [], "data_dictionary": [], "donors": [], "dd_case": {}, "obligations": [],
         "feedback_list": [], "settings": state["settings"], "can_manage_settings": user.get("role") == "admin",
@@ -1422,7 +1489,7 @@ async def module_page(request: Request, slug: str) -> Any:
         "selected_constituent": selected_constituent, "donor_review_queue": [],
         "donor_browse": browse_page, "search_query": search_query,
         "data_catalog": catalog,
-        "organization_context": state.get("settings", {}).get("organization_context", {}),
+        "current_year": date.today().year,
     })
 
 
@@ -1447,26 +1514,101 @@ async def review_funding_opportunity(request: Request) -> RedirectResponse:
     return RedirectResponse("/modules/grant-prospecting?notice=opportunity-review", status_code=303)
 
 
-@app.post("/organization-context", dependencies=[Depends(csrf_guard)])
-async def update_organization_context(request: Request) -> RedirectResponse:
+@app.post("/modules/grant-prospecting/pathways", dependencies=[Depends(csrf_guard)])
+async def add_funding_pathway(request: Request) -> RedirectResponse:
+    """Add a staff-supplied funding lead to the current pathway pipeline."""
     user = require_login(request)
     if isinstance(user, RedirectResponse):
         return user
     form = await request.form()
-    allowed_fields = ("mission_vision", "long_term_objectives", "growth_approach", "key_advantages", "community_impact")
-    organization_context = {
-        key: str(form.get(key, "")).strip()[:3000]
-        for key in allowed_fields
-    }
+    name = str(form.get("pathway_name", "")).strip()[:240]
+    funder = str(form.get("funder", "")).strip()[:180]
+    source_url = str(form.get("source_url", "")).strip()[:1000]
+    deadline = str(form.get("deadline", "")).strip()[:120] or "No deadline entered"
+    amount = str(form.get("amount", "")).strip()[:120] or "Not specified"
+    eligibility = str(form.get("eligibility", "")).strip()[:1800]
+    priorities = str(form.get("priorities", "")).strip()[:1800]
+    parsed = urlsplit(source_url)
+    if not name or not funder or not eligibility or parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return RedirectResponse("/modules/grant-prospecting?error=pathway-input", status_code=303)
     state = _repair_state(store.load())
-    state.setdefault("settings", {})["organization_context"] = organization_context
+    item_id = "staff-" + uuid.uuid4().hex[:12]
+    today = date.today().isoformat()
+    state.setdefault("opportunities", []).append({
+        "id": item_id, "name": name, "funder": funder, "status": "Staff-added pathway · review required",
+        "status_fr": "Voie ajoutée par le personnel · examen requis", "deadline": deadline,
+        "eligibility": eligibility, "eligibility_fr": eligibility,
+        "screen_label": "Needs review", "screen_class": "status-neutral", "route_type": "staff-added", "custom": True,
+        "basis": ("Added by " + str(user.get("display_name") or user.get("email", "staff")) + ". Review fit against the entered priorities and eligibility before committing proposal effort." + (" Priority notes: " + priorities if priorities else "")),
+        "basis_fr": "Ajouté par le personnel. Vérifiez la pertinence selon les priorités et l’admissibilité avant d’engager des efforts.",
+        "next_action": "Review eligibility, deadline and fit; record a pursue, monitor or decline decision.",
+        "next_action_fr": "Vérifier l’admissibilité, l’échéance et la pertinence; consigner une décision.",
+        "checked": today, "url": source_url, "source_urls": [source_url], "source_labels": ["Open source"],
+        "source_labels_fr": ["Ouvrir la source"], "source_title": name, "kind": "Staff-added pathway", "amount": amount,
+    })
     store.save(state)
-    target = str(form.get("return_to", "/modules/grant-prospecting")).strip()
-    allowed_targets = {f"/modules/{slug}" for slug in MODULES}
-    if target not in allowed_targets:
-        target = "/modules/grant-prospecting"
-    separator = "&" if "?" in target else "?"
-    return RedirectResponse(f"{target}{separator}notice=organization-context-saved", status_code=303)
+    return RedirectResponse("/modules/grant-prospecting?notice=pathway-added", status_code=303)
+
+
+@app.post("/modules/intelligent-reporting/revenue", dependencies=[Depends(csrf_guard)])
+async def import_yearly_revenue(request: Request) -> RedirectResponse:
+    """Accept a transaction-level CSV and persist only annual aggregates for reporting."""
+    user = require_login(request)
+    if isinstance(user, RedirectResponse):
+        return user
+    form = await request.form()
+    uploaded = form.get("revenue_file")
+    if not uploaded or not getattr(uploaded, "filename", ""):
+        return RedirectResponse("/modules/intelligent-reporting?error=revenue-file", status_code=303)
+    try:
+        content = await uploaded.read(MAX_UPLOAD_BYTES + 1)
+        if len(content) > MAX_UPLOAD_BYTES:
+            raise ValueError("upload limit")
+        text = content.decode("utf-8-sig")
+        reader = csv.DictReader(io.StringIO(text))
+        if not reader.fieldnames:
+            raise ValueError("empty csv")
+        normalized = {str(name or "").strip().lower().replace(" ", "_"): name for name in reader.fieldnames}
+        date_key = next((normalized[key] for key in ("gift_date", "transaction_date", "donation_date", "date") if key in normalized), None)
+        amount_key = next((normalized[key] for key in ("gift_amount", "transaction_amount", "donation_amount", "amount") if key in normalized), None)
+        currency_key = next((normalized[key] for key in ("currency", "currency_code") if key in normalized), None)
+        constituent_key = next((normalized[key] for key in ("constituent_id", "donor_id", "supporter_id") if key in normalized), None)
+        if not date_key or not amount_key:
+            raise ValueError("missing columns")
+        totals: dict[tuple[str, str], dict[str, Any]] = {}
+        valid = ignored = 0
+        for row in reader:
+            year = _year(row.get(date_key, ""))
+            raw_amount = row.get(amount_key, "")
+            if not year or not _is_recorded(raw_amount):
+                ignored += 1
+                continue
+            amount_text = str(raw_amount).strip().replace(",", "").replace("$", "")
+            try:
+                amount_value = float(amount_text)
+            except ValueError:
+                ignored += 1
+                continue
+            currency = str(row.get(currency_key, "") if currency_key else "").strip().upper() or "Unspecified"
+            key = (year, currency)
+            item = totals.setdefault(key, {"year": year, "currency": currency, "revenue": 0.0, "gift_count": 0, "constituents": set()})
+            item["revenue"] += amount_value
+            item["gift_count"] += 1
+            if constituent_key and _is_recorded(row.get(constituent_key)):
+                item["constituents"].add(str(row[constituent_key]).strip())
+            valid += 1
+        if not valid:
+            raise ValueError("no records")
+        aggregate_rows = []
+        for (year, currency), item in sorted(totals.items()):
+            aggregate_rows.append({"year": year, "currency": currency, "revenue": round(item["revenue"], 2), "gift_count": item["gift_count"], "constituents": len(item["constituents"]) if constituent_key else None})
+    except Exception as exc:
+        reason = "revenue-columns" if str(exc) == "missing columns" else "revenue-upload"
+        return RedirectResponse(f"/modules/intelligent-reporting?error={reason}", status_code=303)
+    state = _repair_state(store.load())
+    state["yearly_revenue"] = {"filename": str(uploaded.filename)[:180], "imported_at": _utc_now(), "transactions": valid, "ignored_rows": ignored, "rows": aggregate_rows}
+    store.save(state)
+    return RedirectResponse("/modules/intelligent-reporting?notice=revenue-imported", status_code=303)
 
 
 @app.post("/modules/{slug}/analyze", dependencies=[Depends(csrf_guard)])
@@ -1519,8 +1661,7 @@ async def analyze_module(request: Request, slug: str) -> RedirectResponse:
             return RedirectResponse(f"/modules/{slug}?error=upload", status_code=303)
     state = _repair_state(store.load())
     sample_context = _sample_context_for_module(slug, state, lang, fields)
-    organization_context = state.get("settings", {}).get("organization_context", {})
-    prompt = _analysis_prompt(slug, fields, sample_context, upload_text, source_refs, lang, organization_context)
+    prompt = _analysis_prompt(slug, fields, sample_context, upload_text, source_refs, lang)
     cache_allowed = slug in {"grant-prospecting", "intelligent-reporting"} and not upload_text
     cache_key = hashlib.sha256(f"{GEMINI_MODEL}\n{prompt}".encode("utf-8")).hexdigest()
     preferred_mode = "gemini" if GEMINI_API_KEY else "local"

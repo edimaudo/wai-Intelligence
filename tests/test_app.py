@@ -467,15 +467,21 @@ def test_work_areas_have_distinct_brief_aligned_layouts_and_no_title_subtitles(c
     assert "WASH" not in funding
     assert "Current funding pathways" in funding
     assert "Peter Gilgan Foundation" in funding
-    assert "Canadian Global Community Impact Foundation" in funding
     assert "Strong history · intake closed" in funding
-    assert "Local applicant required" in funding
-    assert "Eligibility and application process" in funding
     assert "Published international grant history" in funding
+    later_funding_page = client.get("/modules/grant-prospecting?funding_page=2")
+    assert "Canadian Global Community Impact Foundation" in later_funding_page.text
+    assert "Local applicant required" in later_funding_page.text
+    assert "Eligibility and application process" in later_funding_page.text
     assert "Monitoring effort and cost" in funding
     assert "Record or update staff assessment" in funding
     reporting = pages["intelligent-reporting"]
-    assert "Email engagement by send year" in reporting
+    assert "Yearly Email engagement" in reporting
+    assert "Yearly revenue" in reporting
+    assert "Revenue forecasting" in reporting
+    assert "Constituent segmentation" in reporting
+    assert "Profiles by year of last recorded gift" not in reporting
+    assert "CRM touches" not in reporting
     assert "CRM interaction mix" in reporting
     assert "Draft a report narrative" in reporting
     stewardship = pages["donor-stewardship"]
@@ -484,10 +490,18 @@ def test_work_areas_have_distinct_brief_aligned_layouts_and_no_title_subtitles(c
     diligence = pages["ethical-due-diligence"]
     assert "Partner review" in diligence and "Assessment criteria" in diligence
     assert "Ownership and leadership" in diligence and "Source and date" in diligence
+    assert diligence.index("Assessment criteria") < diligence.index("Build assessment file")
+    assert "To assess" not in diligence
     compliance = pages["grant-compliance"]
     assert "Grant document review" in compliance
-    assert "Select the files to compare" in compliance
+    assert "Supporting documents (optional)" in compliance
+    assert "Select the files to compare" not in compliance
     assert "Requirement map" in compliance and "Consistency checks" in compliance
+    assert compliance.index("Review sequence") < compliance.index("Grant document review")
+    upload = re.search(r'<input id="document" name="document" type="file"[^>]*>', compliance)
+    assert upload and "required" not in upload.group(0)
+    for html in pages.values():
+        assert "Organization context" not in html
 
 
 def test_funding_opportunity_staff_disposition_is_saved(client):
@@ -508,6 +522,31 @@ def test_funding_opportunity_staff_disposition_is_saved(client):
     assert "Recheck eligibility after the programme concept is defined." in updated.text
 
 
+def test_funding_pathway_form_adds_staff_entered_pathway_to_paged_pipeline(client):
+    sign_in(client, *read_password_file_credentials()["Staff user"])
+    page = client.get("/modules/grant-prospecting")
+    response = client.post("/modules/grant-prospecting/pathways", data={
+        "csrf_token": csrf(page.text),
+        "pathway_name": "Community Water Resilience Fund",
+        "funder": "Example Foundation",
+        "source_url": "https://example.org/funding",
+        "deadline": "31 December 2026",
+        "amount": "CAD 50,000–100,000",
+        "eligibility": "Canadian registered charities; international community programmes.",
+        "priorities": "Long-term local partnerships and climate resilience.",
+    })
+    assert response.status_code == 303
+    state = wai.store._memory
+    custom = next(item for item in state["opportunities"] if item["name"] == "Community Water Resilience Fund")
+    assert custom["custom"] is True
+    assert custom["url"] == "https://example.org/funding"
+    # Store repair must preserve the user's lead instead of resetting the pipeline.
+    refreshed = client.get("/modules/grant-prospecting?funding_page=2")
+    assert refreshed.status_code == 200
+    assert "Funding pathway pages" in refreshed.text
+    assert len(wai._repair_state(state)["opportunities"]) == len(wai.OFFICIAL_OPPORTUNITIES) + 1
+
+
 def test_reporting_upload_calculates_numeric_changes(client, monkeypatch):
     async def no_gemini(prompt, lang, use_search=False):
         return None
@@ -523,6 +562,36 @@ def test_reporting_upload_calculates_numeric_changes(client, monkeypatch):
     result = wai.store._memory["analyses"][-1]["result"]
     assert "engagement" in result
     assert "10.00" in result and "15.00" in result and "+50.0%" in result
+
+
+def test_yearly_revenue_import_aggregates_transactions_and_forecasts(client, monkeypatch):
+    async def no_gemini(prompt, lang, use_search=False):
+        return None
+    monkeypatch.setattr(wai, "_call_gemini", no_gemini)
+    sign_in(client, *read_password_file_credentials()["Staff user"])
+    page = client.get("/modules/intelligent-reporting")
+    csv_data = (
+        "GIFT_DATE,AMOUNT,CURRENCY,CONSTITUENT_ID\n"
+        "2020-01-01,60,CAD,100\n"
+        "2020-05-02,40,CAD,101\n"
+        "2021-03-01,200,CAD,100\n"
+        "2022-04-01,300,CAD,102\n"
+    ).encode()
+    result = client.post(
+        "/modules/intelligent-reporting/revenue",
+        data={"csrf_token": csrf(page.text)},
+        files={"revenue_file": ("gift-transactions.csv", csv_data, "text/csv")},
+    )
+    assert result.status_code == 303
+    assert result.headers["location"].endswith("notice=revenue-imported")
+    stored = wai.store._memory["yearly_revenue"]
+    assert stored["transactions"] == 4
+    assert {row["year"]: row["revenue"] for row in stored["rows"]} == {"2020": 100.0, "2021": 200.0, "2022": 300.0}
+    report = client.get("/modules/intelligent-reporting")
+    assert "Imported annual revenue" not in report.text  # UI remains localized / user-facing labels.
+    assert "100.00" in report.text and "200.00" in report.text and "300.00" in report.text
+    assert "400.00" in report.text
+    assert "2023" in report.text
 
 
 def test_expanded_source_tables_remain_under_25mb():
@@ -547,31 +616,18 @@ def test_sidebar_has_only_direct_work_area_links_and_no_overview_group(client):
     assert "Overview" not in nav and "Work Areas" not in nav
 
 
-def test_organization_context_is_embedded_in_work_areas_and_persisted(client):
+def test_obsolete_organization_context_is_removed_from_state_and_interface(client):
     sign_in(client, *read_password_file_credentials()["Staff user"])
-    page = client.get("/modules/grant-prospecting")
-    payload = {
-        "csrf_token": csrf(page.text),
-        "return_to": "/modules/grant-prospecting",
-        "mission_vision": "Safe water and sanitation for all communities.",
-        "long_term_objectives": "Expand resilient services with local partners.",
-        "growth_approach": "Build partnerships and diversify funding.",
-        "key_advantages": "Long-term local partnerships and WASH expertise.",
-        "community_impact": "Improve lasting access and community resilience.",
-    }
-    saved = client.post("/organization-context", data=payload)
-    assert saved.status_code == 303
-    assert saved.headers["location"] == "/modules/grant-prospecting?notice=organization-context-saved"
-    assert wai.store._memory["settings"]["organization_context"]["mission_vision"] == payload["mission_vision"]
+    wai.store._memory["settings"]["organization_context"] = {"mission_vision": "Remove this stale context."}
     for slug in wai.MODULES:
         area = client.get(f"/modules/{slug}")
         assert area.status_code == 200
-        assert "Organization context" in area.text
-        assert payload["mission_vision"] in area.text
-        assert "Save context for all work areas" in area.text
+        assert "Organization context" not in area.text
+        assert "Remove this stale context." not in area.text
+    assert "organization_context" not in wai.store._memory["settings"]
 
 
-def test_gemini_work_area_prompts_include_shared_context_and_search_for_research_modules(client, monkeypatch):
+def test_gemini_work_area_prompts_use_work_area_evidence_without_organization_context(client, monkeypatch):
     calls = []
     async def fake_gemini(prompt, lang, use_search=False):
         calls.append({"prompt": prompt, "use_search": use_search})
@@ -579,16 +635,6 @@ def test_gemini_work_area_prompts_include_shared_context_and_search_for_research
     monkeypatch.setattr(wai, "GEMINI_API_KEY", "unit-test-api-key")
     monkeypatch.setattr(wai, "_call_gemini", fake_gemini)
     sign_in(client, *read_password_file_credentials()["Staff user"])
-    page = client.get("/modules/grant-prospecting")
-    client.post("/organization-context", data={
-        "csrf_token": csrf(page.text), "return_to": "/modules/grant-prospecting",
-        "mission_vision": "Organizational mission for Gemini test",
-        "long_term_objectives": "Long-term objective for Gemini test",
-        "growth_approach": "Growth approach for Gemini test",
-        "key_advantages": "Strength for Gemini test",
-        "community_impact": "Community impact for Gemini test",
-    })
-    profile_page = client.get("/modules/donor-stewardship")
     donor_id = next(cid for cid in wai.donor_indexes()["profiles"] if cid in wai.donor_indexes()["context"])
     forms = [
         ("grant-prospecting", {"objective": "Assess Canadian funding leads", "priorities": "International water access", "capacity": "Small fundraising team", "criteria": "Canadian donors"}, True, False),
@@ -607,7 +653,7 @@ def test_gemini_work_area_prompts_include_shared_context_and_search_for_research
         assert response.status_code == 303, slug
     assert len(calls) == 5
     for call in calls:
-        assert "Organizational mission for Gemini test" in call["prompt"]
+        assert "Organization-wide context entered by staff" not in call["prompt"]
         assert "Strategy" in call["prompt"] and "Financial Modeling/Analysis" in call["prompt"]
     assert [call["use_search"] for call in calls] == [True, False, False, True, True]
     assert all("Gemini-generated test analysis" in record["result"] for record in wai.store._memory["analyses"][-5:])

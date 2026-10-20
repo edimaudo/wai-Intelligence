@@ -823,13 +823,71 @@ td strong { display: block; margin-bottom: 3px; color: var(--ink); font-size: .7
 .stewardship-workspace .donor-queue-details table { min-width:900px; }
 @media (max-width:720px) { .donor-context-grid { grid-template-columns:minmax(0,1fr); } .donor-context-fields { grid-template-columns:minmax(0,1fr); } .donor-identity-line { align-items:flex-start; flex-direction:column; } .donor-identity-badges { justify-content:flex-start; } }
 
-/* Shared organizational context is kept inside each work area, not a separate overview page. */
-.organization-context-panel { margin: 0 0 16px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
-.organization-context-panel > summary { cursor: pointer; padding: 13px 16px; color: var(--ink); font-size: .82rem; font-weight: 650; list-style-position: inside; }
-.organization-context-panel[open] > summary { border-bottom: 1px solid var(--line); }
-.organization-context-form { padding: 15px 16px 16px; }
-.organization-context-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin-bottom: 13px; }
-.organization-context-grid .form-field { min-width: 0; }
-.organization-context-grid textarea { min-height: 68px; }
-@media (max-width: 900px) { .organization-context-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
-@media (max-width: 600px) { .organization-context-grid { grid-template-columns: minmax(0,1fr); } }
+/* Current funding pathways: keep the source pipeline first and paginate long lists. */
+.funding-pipeline { order: 0; }
+.funding-filter-rail { order: 1; }
+.funding-page-count { color: var(--ink-muted); font-size: .7rem; white-space: nowrap; }
+.funding-pagination { display:flex; align-items:center; justify-content:center; gap:14px; padding:12px 0 4px; color:var(--ink-secondary); font-size:.75rem; }
+.funding-pagination .button { min-width:100px; }
+.funding-criteria-panel .form-stack { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.funding-criteria-panel .form-stack .form-field:first-of-type,
+.funding-criteria-panel .form-stack .form-field:nth-of-type(3),
+.funding-criteria-panel .form-stack .form-field:nth-of-type(6),
+.funding-criteria-panel .form-stack .form-field:nth-of-type(7) { grid-column: 1 / -1; }
+
+/* Annual email engagement uses a line chart; revenue forecasts are based only on imported gift transactions. */
+.email-engagement-line-chart { min-width:0; width:100%; }
+.email-engagement-line-chart svg { display:block; width:100%; height:auto; min-height:190px; overflow:visible; }
+.chart-grid-line { stroke:var(--line); stroke-width:1; }
+.chart-axis-label { fill:var(--ink-muted); font-size:12px; }
+.engagement-line { fill:none; stroke-width:3; stroke-linecap:round; stroke-linejoin:round; }
+.open-rate-line { stroke:var(--cyan-deep); }
+.click-rate-line { stroke:var(--ink-secondary); stroke-dasharray:6 4; }
+.engagement-point { stroke:var(--surface); stroke-width:2; }
+.engagement-point.open-rate-line { fill:var(--cyan-deep); }
+.engagement-point.click-rate-line { fill:var(--ink-secondary); }
+.reporting-chart-legend { display:flex; flex-wrap:wrap; gap:16px; margin-top:7px; color:var(--ink-secondary); font-size:.68rem; }
+.reporting-chart-legend span { display:inline-flex; align-items:center; gap:7px; }
+.reporting-chart-legend span::before { content:""; display:inline-block; width:19px; border-top:3px solid var(--cyan-deep); }
+.reporting-chart-legend .legend-click-rate::before { border-top-color:var(--ink-secondary); border-top-style:dashed; }
+.reporting-analysis-panels { margin-top:17px; align-items:start; }
+.revenue-import-form { display:flex; align-items:end; flex-wrap:wrap; gap:12px; margin-top:16px; padding-top:14px; border-top:1px solid var(--line); }
+.revenue-import-form .form-field { flex:1 1 230px; min-width:0; }
+.revenue-import-form input[type=file] { max-width:100%; font-size:.72rem; }
+.revenue-import-form small { display:block; margin-top:6px; color:var(--ink-muted); font-size:.65rem; line-height:1.45; }
+.reporting-segmentation-panel { margin-top:16px; padding:18px; }
+.reporting-segmentation-panel .panel-heading h2 { margin:0; font-size:.98rem; }
+.segment-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+.segment-card { min-width:0; padding:13px; border:1px solid var(--line); border-radius:7px; background:var(--surface-alt); }
+.segment-card > span { display:block; min-height:31px; color:var(--ink-secondary); font-size:.7rem; line-height:1.4; }
+.segment-card > strong { display:block; margin:7px 0 3px; color:var(--ink); font-size:1.25rem; font-variant-numeric:tabular-nums; }
+.segment-card > small { display:block; margin-bottom:9px; color:var(--ink-muted); font-size:.65rem; }
+
+/* Donor record and browse tables are distinct, spaced sections. */
+.donor-record-toolbar h2 { font-size:1.6rem; letter-spacing:-.03em; line-height:1.18; }
+.donor-browse-panel { grid-column:1 / -1; margin-top:30px; padding:26px; }
+.donor-record-panel { margin-bottom:4px; }
+.donor-browse-panel .donor-queue-heading { margin-bottom:18px; }
+.donor-browse-panel .donor-queue-heading h2 { margin:0; font-size:1.35rem; letter-spacing:-.02em; line-height:1.25; }
+
+/* Keep the review criteria and sequence above the work forms in visual and reading order. */
+.grant-output-rail { order:0; }
+.grant-document-intake { order:1; }
+.due-diligence-workspace > .criteria-matrix { order:0; margin-bottom:0; }
+.due-diligence-intake { order:1; }
+.due-diligence-rail { order:2; }
+.grant-output-rail .grant-lifecycle-heading { margin:0 0 12px; }
+.grant-output-rail .grant-output-map { border:1px solid var(--line); border-radius:8px; background:var(--surface); }
+
+@media (max-width:1020px) {
+  .segment-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+@media (max-width:720px) {
+  .funding-criteria-panel .form-stack { display:flex; }
+  .funding-pagination { gap:8px; }
+  .funding-pagination .button { min-width:0; }
+  .reporting-analysis-panels { grid-template-columns:minmax(0,1fr); }
+  .segment-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .donor-browse-panel { margin-top:24px; padding:18px; }
+  .revenue-import-form { align-items:stretch; }
+}
